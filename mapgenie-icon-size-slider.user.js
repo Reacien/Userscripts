@@ -2,14 +2,14 @@
 // @name         MapGenie - Icon Size Slider
 // @namespace    https://github.com/Reacien/Userscripts
 // @version      1.0.0
-// @description  Slider that allows you to dynamically change the size of the icons; adapts to all MapGenie maps; Saves default value
+// @description  Add a slider to dynamically adjust the size of icons on mapgenie.io maps for better visibility and customization.
 // @author       Reacien
 // @match        https://mapgenie.io/*
 // @icon         https://cdn.mapgenie.io/favicons/mapgenie/favicon.ico
-// @downloadURL  *
-// @updateURL    *
+// @downloadURL  https://raw.githubusercontent.com/Reacien/Userscripts/main/mapgenie-icon-size-slider.user.js
+// @updateURL    https://raw.githubusercontent.com/Reacien/Userscripts/main/mapgenie-icon-size-slider.user.js
 // ==/UserScript==
-// *
+// https://github.com/Reacien/Userscripts
 // *
 
 (function() {
