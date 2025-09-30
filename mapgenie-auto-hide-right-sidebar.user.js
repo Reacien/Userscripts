@@ -7,6 +7,8 @@
 // @match        https://mapgenie.io/*
 // @icon         https://cdn.mapgenie.io/favicons/mapgenie/favicon.ico
 // @license      GPL-3.0-or-later
+// @downloadURL https://update.greasyfork.org/scripts/551177/MapGenie%20-%20Hide%20Top%20Right%20Sidebar.user.js
+// @updateURL https://update.greasyfork.org/scripts/551177/MapGenie%20-%20Hide%20Top%20Right%20Sidebar.meta.js
 // ==/UserScript==
 
 (function() {
