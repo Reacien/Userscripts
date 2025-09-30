@@ -1,20 +1,19 @@
 // ==UserScript==
 // @name         MapGenie - Icon Size Slider
 // @namespace    https://github.com/Reacien/Userscripts
-// @version      1.1.1
-// @description  Add a slider to dynamically adjust the size of icons on mapgenie.io maps for better visibility and customization.
+// @version      1.2.0
+// @description  Add a slider to dynamically adjust the size of icons on mapgenie.io maps for better visibility and customization. Now with dynamic text color matching the map theme/logo!
 // @author       Reacien
 // @match        https://mapgenie.io/*
 // @icon         https://cdn.mapgenie.io/favicons/mapgenie/favicon.ico
 // @license      GPL-3.0-or-later
-// @downloadURL  https://raw.githubusercontent.com/Reacien/Userscripts/main/mapgenie-icon-size-slider.user.js
-// @updateURL    https://raw.githubusercontent.com/Reacien/Userscripts/main/mapgenie-icon-size-slider.user.js
+// @downloadURL  https://update.greasyfork.org/scripts/551149/MapGenie%20-%20Icon%20Size%20Slider.user.js
+// @updateURL    https://update.greasyfork.org/scripts/551149/MapGenie%20-%20Icon%20Size%20Slider.meta.js
 // ==/UserScript==
 
 (function() {
   const LS_KEY = "mapgenie_icon_slider_value";
 
-  // Get unique map ID (game-name portion from URL)
   const mapId = (function() {
       let pathParts = location.pathname.split('/');
       return pathParts.length > 1 ? pathParts[1] : "default";
@@ -27,11 +26,15 @@
     const mapId = "${mapId}";
 
     function getColors() {
-      let categoryTitle = document.querySelector('#categories .category-item .title');
-      let textColor = categoryTitle ? window.getComputedStyle(categoryTitle).color : "#fff";
       let btn = document.querySelector('.social-item');
       let barBg = btn ? window.getComputedStyle(btn).backgroundColor : "#171e26";
-      return { barBg, textColor };
+      return { barBg };
+    }
+
+    function getSvgColor() {
+      let svgColor = getComputedStyle(document.documentElement).getPropertyValue('--social-icon-fill-color').trim();
+      if (!svgColor) svgColor = getComputedStyle(document.documentElement).getPropertyValue('--text-color').trim();
+      return svgColor || "#fff";
     }
 
     function getSliderInfo() {
@@ -48,7 +51,6 @@
 
     function getSavedValue() {
       let storedVal = localStorage.getItem(\`\${LS_KEY}_\${mapId}\`);
-      console.log("Loading saved icon size for", mapId, "value:", storedVal);
       let v = storedVal !== null ? Number(storedVal) : 1.00;
       if (isNaN(v) || v < 0.1 || v > 2) v = 1.00;
       return v;
@@ -56,7 +58,6 @@
 
     function saveValue(val) {
       localStorage.setItem(\`\${LS_KEY}_\${mapId}\`, val);
-      console.log("Saving icon size for", mapId, "value:", val);
     }
 
     function setIconSize(size) {
@@ -78,7 +79,8 @@
     }
 
     function injectSlider() {
-      const {barBg, textColor} = getColors();
+      const {barBg} = getColors();
+      const svgColor = getSvgColor();
 
       const social = document.querySelector('.social');
       if(!social || social.querySelector("#icon-size-slider-wrap")) return;
@@ -91,10 +93,11 @@
       wrap.style.padding = "0 8px";
       wrap.style.borderRadius = "3px";
       wrap.style.backgroundColor = barBg;
+      wrap.style.opacity = "0.9";
 
       const label = document.createElement("span");
       label.textContent = "ICON SIZE:";
-      label.style.color = textColor;
+      label.style.color = svgColor;
       label.style.fontSize = getCategoryTitleFontSize();
       label.style.marginRight = "6px";
       label.style.whiteSpace = "nowrap";
@@ -122,7 +125,7 @@
       valInput.style.padding = "1px";
       valInput.style.marginLeft = "2px";
       valInput.style.textAlign = "center";
-      valInput.style.color = textColor;
+      valInput.style.color = svgColor;
       valInput.style.fontSize = getCategoryTitleFontSize();
       valInput.style.width = "28px";
       valInput.setAttribute("inputmode", "decimal");
@@ -177,6 +180,5 @@
     }
   })();
   `;
-
   document.documentElement.appendChild(script);
 })();
