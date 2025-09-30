@@ -6,7 +6,7 @@
 // @author       Reacien
 // @match        https://mapgenie.io/*
 // @icon         https://cdn.mapgenie.io/favicons/mapgenie/favicon.ico
-// @license      GNU GPLv3
+// @license      GPL-3.0-or-later
 // @downloadURL  https://raw.githubusercontent.com/Reacien/Userscripts/main/mapgenie-icon-size-slider.user.js
 // @updateURL    https://raw.githubusercontent.com/Reacien/Userscripts/main/mapgenie-icon-size-slider.user.js
 // ==/UserScript==
