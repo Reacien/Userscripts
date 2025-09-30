@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MapGenie - Icon Size Slider
 // @namespace    https://github.com/Reacien/Userscripts
-// @version      1.1.0
+// @version      1.1.1
 // @description  Add a slider to dynamically adjust the size of icons on mapgenie.io maps for better visibility and customization.
 // @author       Reacien
 // @match        https://mapgenie.io/*
@@ -38,9 +38,12 @@
       const progressBar = document.querySelector('.progress-bar-container .progress-bar');
       if(progressBar) {
         const bgColor = window.getComputedStyle(progressBar).backgroundColor;
+        if(!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+          return { color: '#f7b500' };
+        }
         return { color: bgColor };
       }
-      return { color: '#f7b500', height: '6px' };
+      return { color: '#f7b500' };
     }
 
     function getSavedValue() {
