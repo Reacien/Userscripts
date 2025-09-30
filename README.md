@@ -3,6 +3,7 @@
 | Name | Description | Last Updated |
 |------|-------------|-------------|
 | [mapgenie-icon-size-slider](./mapgenie-icon-size-slider.user.js) | Dynamically change icon size on MapGenie. Saves your preference. | 2025-09-30 |
+| [mapgenie-auto-hide-right-sidebar](./mapgenie-auto-hide-right-sidebar.user.js) | Automatically hides the right sidebar on page laod. | 2025-09-30 |
 | | | |
 ---
 
