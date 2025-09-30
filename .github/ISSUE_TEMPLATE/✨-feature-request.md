@@ -2,7 +2,7 @@
 name: "✨ Feature Request"
 about: Use this if you have an idea for a new feature or upgrade.
 title: "[FEATURE] <describe feature>"
-labels: "✨ Feature Request"
+labels: "✨ Feature Request, \U0001F41E Script Bug"
 assignees: Reacien
 
 ---
