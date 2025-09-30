@@ -25,8 +25,7 @@
 ## 🔄 Request an Update / Report a Problem
 
 If a script isn’t working or needs an update:
-- Open an [Issue](https://github.com/Reacien/Userscripts/issues)
-- Write the name of the script and describe what’s broken.
+- Open an [Issue](https://github.com/Reacien/Userscripts/issues) and write the name of the script and describe what’s broken.
 - Optionally, mention websites, browser versions, or error messages.
 
 I do my best to patch things quickly!
