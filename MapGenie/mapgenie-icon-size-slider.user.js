@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MapGenie - Icon Size Slider
 // @namespace    https://github.com/Reacien/Userscripts
-// @version      1.3.0
+// @version      2.0.0
 // @description  Add a slider to dynamically adjust the size of icons on mapgenie.io maps for better visibility and customization. Now with dynamic text color matching the map theme/logo!
 // @author       Reacien
 // @match        https://mapgenie.io/*/maps/*

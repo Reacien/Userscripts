@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MapGenie - Hide Top Right Sidebar
 // @namespace    https://github.com/Reacien/Userscripts
-// @version      1.1.0
+// @version      2.0.0
 // @description  Hides the top right sidebar on page load
 // @author       Reacien
 // @match        https://mapgenie.io/*/maps/*
