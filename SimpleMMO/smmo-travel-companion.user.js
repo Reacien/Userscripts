@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.31.0
+// @version      0.32.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
+// @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
 // @icon         https://play-lh.googleusercontent.com/2HpPmq4Mikjkk-E30oLLZ6irM0vQZokuy0h00plEvlFsXMypfm7jZ0ysdcO--z3BnRk8_ZXVTt16UpsfaMJBIw
 // @match        https://web.simple-mmo.com/*
 // @grant        none
