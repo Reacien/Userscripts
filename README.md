@@ -9,16 +9,16 @@
 
 ## 🚀 How to Use
 
-1. **Install a Userscript Manager**  
+1. Install a Userscript Manager
    Choose one of the following browser extensions:
    - [Tampermonkey](https://www.tampermonkey.net/) (Chrome, Firefox, Safari, Edge, Opera) (my personal favorite)
    - [Violentmonkey](https://violentmonkey.github.io/) (Chrome, Firefox, Edge)
    - [Greasemonkey](https://www.greasespot.net/) (Firefox only)
-
-2. **Install a Script**  
+     
+2. Install a Script
    Click on any script name in the catalog above, then click the "Raw" button. Your userscript manager should prompt you to install it.
 
-3. **Enjoy!**  
+3. Enjoy!  
    The script will automatically run on compatible websites.
 
 ---
