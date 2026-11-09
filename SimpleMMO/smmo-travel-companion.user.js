@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.35.1
+// @version      0.35.2
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -3218,8 +3218,12 @@
     if (!bell) return;
     // New layout: the count sits next to the link, inside the same small box.
     const scope = bell.closest('aside') ? (bell.closest('.relative') || bell) : bell;
-    scope.querySelectorAll('span').forEach(function (span) {
-      if (!span.classList.contains('sr-only') && /^\d+\+?$/.test(span.textContent.trim())) span.remove();
+    scope.querySelectorAll('span, div').forEach(function (el) {
+      if (el === scope || el.contains(bell) || el.querySelector('svg') || el.closest('svg') || el.classList.contains('sr-only')) return;
+      const text = el.textContent.trim();
+      const r = el.getBoundingClientRect();
+      // A number ("3", "9+"), or the small coloured dot the new layout uses
+      if (/^\d+\+?$/.test(text) || (!text && r.width > 0 && r.width <= 24 && r.height <= 24)) el.remove();
     });
   }
 
