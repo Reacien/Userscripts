@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.32.0
+// @version      0.33.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -327,6 +327,14 @@
 
     '/profession': function (html) {
       const d = readGameData(html);
+      if ('profession.rewards.player_experience' in d) {
+        update(KEY.data, (data) => {
+          data.profession = {
+            expPerMin: d['profession.rewards.player_experience'], goldPerMin: d['profession.rewards.gold'],
+            skillExpPerMin: d['profession.rewards.profession_experience'], seenAt: Date.now()
+          };
+        });
+      }
       const left = d['profession.work.remaining_time'];
       if (typeof left === 'number' && left > 0) {
         setTimer('job', {
@@ -533,6 +541,12 @@
         diamonds: p.currencies ? p.currencies.diamonds : null,
         steps: p.statistics ? p.statistics.steps : null,
         location: p.location ? p.location.name : null,
+        experience: p.experience,
+        stats: p.stats || null,                 // core / equipment / total Str, Def, Dex
+        freeStatPoints: p.available_stat_points,
+        statistics: p.statistics || null,       // NPC kills, quests, tasks...
+        membership: !!p.membership,
+        guild: p.guild ? p.guild.name : null,
         seenAt: Date.now()
       };
     });
@@ -1652,6 +1666,7 @@
   }
 
   const sideTools = '<span class="stc-tools"><button class="stc-icon-btn" title="Chat (Alt+M)" data-dock-toggle>💬</button>' +
+    '<button class="stc-icon-btn" title="Open the SimpleMMO Hub with your numbers filled in" data-open-hub>📊</button>' +
     '<button class="stc-icon-btn" title="Settings (Alt+C)" data-open-settings>⚙</button></span>';
 
   function buildSidebar() {
@@ -2107,6 +2122,7 @@
     const t = e.target;
     if (t.closest('[data-time-toggle]')) { e.preventDefault(); e.stopPropagation(); return; } // handled on pointerdown
     if (t.closest('[data-open-settings]')) { e.preventDefault(); openSettings(); return; }
+    if (t.closest('[data-open-hub]')) { e.preventDefault(); window.open(HUB_URL + '#stc=' + encodeProfile(), '_blank', 'noopener'); return; }
     if (t.closest('.stc-side [data-side-fold]')) {
       e.preventDefault();
       settings.sideFolded = !settings.sideFolded;
@@ -3006,6 +3022,66 @@
     e.stopPropagation();
     openPagePopup(url, def, a.textContent.replace(/\s+/g, ' ').trim().slice(0, 40));
   }, true);
+
+  // ---------------------------------------------------------------------------
+  // SimpleMMO Hub: hand your numbers to the guide website
+  // ---------------------------------------------------------------------------
+  // The Hub can't read this site's storage, so the Companion hands it a small summary
+  // (never your API key). Two ways:
+  //  - the 📊 button opens the Hub with the summary in the address after "#" (that part never leaves your browser);
+  //  - the Hub's "Sync" button opens a game page ending in #stc-hub-sync; the Companion answers the Hub
+  //    window that opened it, and closes again.
+  const HUB_URL = 'https://reacien.github.io/smmo-hub/';
+  const HUB_ORIGIN = 'https://reacien.github.io';
+
+  function hubProfile() {
+    const data = load(KEY.data, {});
+    const timers = load(KEY.timers, {});
+    const p = data.player || {};
+    const lv = timers.level || {};
+    const walk = walkingExpPerStep();
+    // Walking pace and gold from your past sessions
+    const history = load(KEY.history, []).filter((h) => h.steps > 20 && h.end > h.start);
+    const steps = history.reduce((a, h) => a + h.steps, 0);
+    const hours = history.reduce((a, h) => a + (h.end - h.start), 0) / 3600000;
+    const gold = history.reduce((a, h) => a + (h.gold || 0), 0);
+    const total = p.stats && p.stats.total ? p.stats.total : null;
+    return {
+      v: 1, at: Date.now(),
+      name: p.name || null, level: p.level || lv.level || null,
+      expInto: typeof lv.into === 'number' ? lv.into + (lv.gainedSince || 0) : null,
+      gold: p.gold, diamonds: p.diamonds, steps: p.steps, location: p.location, membership: p.membership,
+      energy: timers.energy ? { current: timers.energy.current, max: timers.energy.max, at: timers.energy.seenAt } : null,
+      qp: timers.qp ? { current: timers.qp.current, max: timers.qp.max, at: timers.qp.seenAt } : null,
+      hp: timers.hp ? { current: timers.hp.current, max: timers.hp.max } : null,
+      stats: total ? { str: total.str, def: total.def, dex: total.dex } : null,
+      freeStatPoints: p.freeStatPoints,
+      skills: Array.isArray(data.skills) ? data.skills.map((x) => ({ skill: x.skill, level: x.level })) : null,
+      walking: {
+        expPerStep: walk.samples ? Math.round(walk.avg) : null,
+        goldPerStep: steps ? Math.round(gold / steps) : null,
+        stepsPerHour: hours > 0.2 ? Math.round(steps / hours) : null
+      },
+      profession: data.profession || null,
+      marketGoldPerDiamond: data.market && data.market.listings && data.market.listings[0] ? data.market.listings[0].price : null
+    };
+  }
+
+  // JSON -> text that's safe after the "#" in an address
+  function encodeProfile() {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(hubProfile())))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  // Opened by the Hub's Sync button
+  if (location.hash === '#stc-hub-sync') {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (window.opener) {
+      window.opener.postMessage({ type: 'stc-profile', profile: hubProfile() }, HUB_ORIGIN); // only arrives if the opener is the Hub
+      setTimeout(() => window.close(), 300);
+    } else {
+      location.replace(HUB_URL + '#stc=' + encodeProfile());
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // The human check always opens in the page popup
