@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.34.0
+// @version      0.35.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -67,6 +67,7 @@
     planTime: '',
     questSort: 'game',   // 'game' = the game's own order, 'left' = fewest left first
     collectionMarks: true,
+    craftKeepEnergy: 0,   // crafting helper: energy to keep
     sideFolded: false,
     guardGiving: true,
     chatPopup: true,
@@ -1150,6 +1151,11 @@
     .stc-quest-top:hover { background: var(--stc-hover, rgba(99,102,241,.08)); }
     .stc-quest-top .stc-bar { display: block; margin: 6px 0; }
     .stc-quest-top .stc-bar span { background: var(--stc-accent); border-radius: 3px; }
+    .stc-craft { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--stc-accent-strong); border-radius: 8px; font-size: 12px; color: var(--stc-text); background: rgba(99,102,241,.06); }
+    .stc-craft-title { font-size: 11px; font-weight: 600; color: var(--stc-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .stc-craft .stc-row { padding: 2px 0; gap: 8px; }
+    .stc-craft input[type=number] { width: 52px; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 4px; padding: 1px 4px; font: inherit; }
+    .stc-craft-fill { margin-left: 6px; padding: 1px 6px !important; border: 1px solid var(--stc-border) !important; border-radius: 4px; font-size: 11px !important; }
     .stc-seg { display: inline-flex; border: 1px solid var(--stc-border); border-radius: 6px; overflow: hidden; }
     .stc-seg button { background: none; border: 0; padding: 4px 10px; font: inherit; font-size: 12px; color: var(--stc-muted); cursor: pointer; }
     .stc-seg button + button { border-left: 1px solid var(--stc-border); }
@@ -1922,6 +1928,7 @@
     if (!settings.showPageCards && pageCard) { pageCard.remove(); pageCard = null; }
     if (settings.showPageCards && PATH.startsWith('/profession')) mountPlanner(document, mainColumn());
     if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
+    if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
   }
 
   function walkCardHtml() {
@@ -2740,6 +2747,136 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Crafting helper (inside the game's "Start Crafting" window, also in the Crafting popup)
+  // ---------------------------------------------------------------------------
+  // Once you pick what to craft, it shows how many you can make: to keep some energy, to reach the
+  // next crafting level, and with the materials you have. "Fill in" only types the number in; you press Start Crafting.
+  const craftDocs = [];
+
+  function watchCrafting(doc) {
+    if (!craftDocs.includes(doc)) craftDocs.push(doc);
+  }
+
+  // The game's crafting window keeps its state (recipe, your materials) in its page data
+  function craftingState(doc) {
+    const unwrap = (v) => {
+      if (Array.isArray(v)) return v.length === 2 && v[1] && typeof v[1] === 'object' && 's' in v[1] ? unwrap(v[0]) : v.map(unwrap);
+      if (v && typeof v === 'object') { const o = {}; for (const k in v) o[k] = unwrap(v[k]); return o; }
+      return v;
+    };
+    for (const el of doc.querySelectorAll('[wire\\:snapshot]')) {
+      try {
+        const snap = JSON.parse(el.getAttribute('wire:snapshot'));
+        if (snap.memo && snap.memo.name === 'crafting') return unwrap(snap.data);
+      } catch (e) { /* not readable */ }
+    }
+    return null;
+  }
+
+  // Energy right now: the last known value plus +1 at every 5-minute mark since
+  function energyNow() {
+    const t = load(KEY.timers, {}).energy;
+    if (!t || typeof t.current !== 'number') return null;
+    const ticks = Math.max(0, Math.floor(Date.now() / REGEN_MS) - Math.floor((t.seenAt || Date.now()) / REGEN_MS));
+    return { current: Math.min(t.max, t.current + ticks), max: t.max };
+  }
+
+  // Crafting EXP still needed for the next level ("52 EXP Needed" on the page, or from your skills)
+  function craftingExpNeeded(doc, level) {
+    const m = (doc.querySelector('main') || doc.body).textContent.replace(/\s+/g, ' ').match(/Crafting Level\s*([\d,]+)\s*EXP Needed/i);
+    if (m) return toNumber(m[1]);
+    const skill = (load(KEY.data, {}).skills || []).find((s) => s.skill === 'forging');
+    if (skill && skill.level === level && typeof skill.exp === 'number') return 25 * (level + 1) * level - skill.exp; // 50 x level per level
+    return null;
+  }
+
+  function renderCraftHelper(doc) {
+    const items = (n) => fmt(n) + (n === 1 ? ' item' : ' items');
+    const input = doc.querySelector('input[wire\\:model="wizard.quantity"]');
+    const old = doc.querySelector('.stc-craft');
+    if (!input || !input.offsetParent) { if (old) old.remove(); return; }
+    const state = craftingState(doc);
+    const key = state && state.wizard && state.wizard.craftable && state.wizard.craftable.key;
+    const recipe = key && state.config && state.config.craftables ? state.config.craftables[key] : null;
+    if (!recipe) { if (old) old.remove(); return; }
+
+    // Don't redraw while you're typing in it
+    if (old && old.contains(doc.activeElement) && doc.activeElement.matches('input')) return;
+    // Put our box just above the game's Start Crafting button (the game sometimes redraws the window)
+    let box = old;
+    if (!box) {
+      const start = [...doc.querySelectorAll('button')]
+        .find((b) => /Start Crafting/.test(b.textContent) && b.offsetParent && b.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_PRECEDING);
+      if (!start) return;
+      ensureStyle(doc);
+      box = doc.createElement('div');
+      box.className = 'stc-craft stc-ui';
+      start.parentElement.insertBefore(box, start);
+      box.addEventListener('click', function (e) {
+        const fillBtn = e.target.closest('[data-craft-fill]');
+        if (fillBtn) {
+          input.value = fillBtn.dataset.craftFill;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      box.addEventListener('change', function (e) {
+        if (!e.target.matches('[data-craft-keep]')) return;
+        settings.craftKeepEnergy = Math.max(0, parseInt(e.target.value, 10) || 0);
+        save(KEY.settings, settings);
+      });
+    }
+
+    const level = state.crafting_level || 1;
+    const epPer = recipe.energy_cost || 1;
+    const expPer = (state.config.experience && state.config.experience.crafting ? state.config.experience.crafting.base : 5) * (recipe.experience_modifier ? recipe.experience_modifier.crafting : 1);
+    const batch = parseInt(input.max, 10) || 10;
+    const keep = settings.craftKeepEnergy || 0;
+
+    // Materials: the recipe needs a number of materials of a rarity per item; add up what you have of that rarity
+    const owned = Object.values(state.player_materials || {});
+    const needs = Object.entries(recipe.required_rarity || {}).map(([rarity, r]) => ({
+      name: r.name, per: r.quantity, have: owned.filter((m) => m.rarity === rarity).reduce((a, m) => a + (m.quantity || 0), 0)
+    }));
+    const byMaterials = needs.length ? Math.min(...needs.map((n) => Math.floor(n.have / n.per))) : null;
+
+    const ep = energyNow();
+    const byEnergy = ep ? Math.max(0, Math.floor((ep.current - keep) / epPer)) : null;
+    const needed = craftingExpNeeded(doc, level);
+    const toLevel = needed !== null && level < (state.config.max_crafting_level || 100) ? Math.ceil(Math.max(1, needed) / expPer) : null;
+
+    const fill = (n) => n > 0 ? ' <button class="stc-icon-btn stc-craft-fill" data-craft-fill="' + Math.min(n, batch) + '">Fill in ' + Math.min(n, batch) + '</button>' : '';
+    const limits = [byMaterials, byEnergy, batch].filter((n) => n !== null);
+    const most = Math.min(...limits);
+    const why = most === batch ? 'the most per craft' : most === byEnergy ? 'your energy' : 'your materials';
+
+    let html = '<div class="stc-craft-title">Companion</div>';
+    html += '<div class="stc-row"><span>Energy now</span><span>' + (ep ? ep.current + ' / ' + ep.max : muted('not known yet')) + '</span></div>';
+    html += '<div class="stc-row"><span>Keep at least <input type="number" min="0" data-craft-keep value="' + keep + '"> EP</span><span>' +
+      (byEnergy === null ? muted('?') : items(byEnergy) + ' (' + fmt(byEnergy * epPer) + ' EP)') + fill(byEnergy) + '</span></div>';
+    if (toLevel !== null) {
+      const enough = byEnergy !== null && toLevel <= byEnergy && (byMaterials === null || toLevel <= byMaterials);
+      html += '<div class="stc-row"><span>Next crafting level (' + fmt(needed) + ' EXP)</span><span>' + items(toLevel) + ', ' + fmt(toLevel * epPer) + ' EP ' +
+        (enough ? ready('possible') : '<span class="stc-warn">not with what you have</span>') + (enough ? fill(toLevel) : '') + '</span></div>';
+      if (toLevel > batch) html += '<div class="stc-note" style="margin-top:0">That takes more than one craft (' + batch + ' at a time).</div>';
+    }
+    needs.forEach(function (n) {
+      html += '<div class="stc-row"><span>' + escapeHtml(n.name) + ': ' + fmt(n.have) + ' (' + n.per + ' each)</span><span>' + items(Math.floor(n.have / n.per)) + fill(Math.floor(n.have / n.per)) + '</span></div>';
+    });
+    if (!needs.length) html += '<div class="stc-note">This recipe needs specific items; check them in the game’s list.</div>';
+    html += '<div class="stc-row"><span><b>Most you can craft now</b></span><span><b>' + fmt(Math.max(0, most)) + '</b> ' + muted('(' + why + ')') + fill(most) + '</span></div>';
+    html += '<div class="stc-note" style="margin-top:2px">' + expPer + ' crafting EXP and ' + epPer + ' EP per item. "Fill in" only types the number; you press Start Crafting.</div>';
+    setHtml(box, html);
+  }
+
+  function renderCraftHelpers() {
+    for (let i = craftDocs.length - 1; i >= 0; i--) {
+      if (!craftDocs[i].defaultView) craftDocs.splice(i, 1);
+      else renderCraftHelper(craftDocs[i]);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Everything that updates several times a second
   // ---------------------------------------------------------------------------
   let questTick = 0;
@@ -2757,6 +2894,7 @@
       if (!planners[i].el.isConnected) planners.splice(i, 1);
       else renderPlanner(planners[i]);
     }
+    if (questTick % 2 === 0) renderCraftHelpers();
     if (++questTick % 4 === 0) {
       for (let i = questHelpers.length - 1; i >= 0; i--) {
         if (!questHelpers[i].el.isConnected) questHelpers.splice(i, 1);
@@ -3167,6 +3305,7 @@
           if (where.pathname.startsWith('/profession')) mountPlanner(doc, column);
           else mountQuestHelper(doc, column);
         }
+        if (where.pathname.startsWith('/crafting') && settings.showPageCards) watchCrafting(doc);
         // Show the page's own title, and keep "Open full page" pointing at where you are now.
         const own = (doc.title || '').replace(/\s*\|\s*SimpleMMO\s*$/i, '').trim();
         if (own && !/^SimpleMMO$/i.test(own)) $('stc-page-title').textContent = own;
