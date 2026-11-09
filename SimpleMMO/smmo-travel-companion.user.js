@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.35.0
+// @version      0.35.1
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -410,15 +410,23 @@
     },
 
     '/crafting/menu': function (html) {
-      if (/not currently crafting/i.test(html)) {
-        setTimer('crafting', { active: false, endsAt: null });
-      } else {
-        const old = load(KEY.timers, {}).crafting;
-        setTimer('crafting', { active: true, endsAt: old && old.active ? old.endsAt : null });
-      }
-      return null;
+      const endsAt = readCraftingTimer(html);
+      return endsAt && endsAt > Date.now() ? endsAt + RECHECK_AFTER_END : null;
     }
   };
+
+  // Crafting: the page carries the start, server and end times (in seconds) of your current craft.
+  // When the end has passed, your items are ready to collect; "not currently crafting" means nothing is going on.
+  function readCraftingTimer(html) {
+    const m = html.match(/server_time:\s*(\d+),\s*expiry_time:\s*(\d+)/);
+    if (m && !/not currently crafting/i.test(html)) {
+      const endsAt = Date.now() + (parseInt(m[2], 10) - parseInt(m[1], 10)) * 1000;
+      setTimer('crafting', { active: true, endsAt: endsAt });
+      return endsAt;
+    }
+    if (/not currently crafting/i.test(html)) setTimer('crafting', { active: false, endsAt: null });
+    return null;
+  }
 
   function scheduleSource(path, recheckAt) {
     const fallback = Date.now() + Math.max(2, settings.bgRefreshMinutes) * MIN;
@@ -669,14 +677,7 @@
       if (qp) setTimer('qp', qp);
     }
 
-    if (PATH.startsWith('/crafting')) {
-      const text = ((document.querySelector('main') || document.body).innerText || '').replace(/\s+/g, ' ');
-      if (!/not currently crafting/i.test(text)) {
-        const i = text.indexOf('updated hourly.');
-        const ms = parseDuration(i === -1 ? null : text.slice(i + 15, i + 315));
-        if (ms !== null) setTimer('crafting', { active: true, endsAt: Date.now() + ms });
-      }
-    }
+    if (PATH.startsWith('/crafting')) readCraftingTimer(document.documentElement.innerHTML);
 
     if (isTravelPage) {
       const data = findAlpineData('sprint');
