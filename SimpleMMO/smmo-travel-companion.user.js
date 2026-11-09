@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.33.0
+// @version      0.34.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -1200,6 +1200,22 @@
     .stc-give-note a { color: inherit; text-decoration: underline; }
     .stc-coll.new { background: var(--stc-accent-strong); color: #fff; }
 
+    /* Sessions manager (same look as the settings window) */
+    #stc-sessions { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
+    #stc-sessions.open { display: flex; }
+    #stc-sessions .stc-win { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
+      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
+    #stc-sessions .stc-win-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
+    #stc-sessions .stc-win-body { padding: 8px 16px 16px; }
+    .stc-sess { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--stc-border); align-items: center; }
+    .stc-sess-tools { display: flex; gap: 6px; align-items: center; }
+    .stc-sess input[type=number] { width: 70px !important; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 3px 6px; }
+    .stc-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; margin: 8px 0; border: 1px solid var(--stc-border); border-radius: 8px; }
+    .stc-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--stc-muted); }
+    .stc-form input, #stc-sessions textarea { width: 100%; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 5px 7px; font: inherit; }
+    #stc-sessions textarea { min-height: 70px; resize: vertical; }
+
     /* Settings window (styled like the game's own windows) */
     #stc-settings { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center;
       background: rgba(0,0,0,.6); padding: 6vh 12px; }
@@ -1372,6 +1388,7 @@
         <div class="stc-section-title">Sessions</div>
         <label>End session after no activity (minutes, min 5) <input type="number" min="0" data-key="idleResetMinutes"></label>
         <div class="stc-note">A session starts with your first step. If you don't step or fight for this long, it ends at your last action, so the time away isn't counted. 0 = only end it yourself.</div>
+        <div class="stc-btns"><button class="${GAME.button2}" data-manage-sessions>Manage sessions</button></div>
 
         <div class="stc-section-title">On the website</div>
         <label>Companion block in the left menu <input type="checkbox" data-key="showSidebar"></label>
@@ -1923,9 +1940,187 @@
         '<div><div class="stc-section-title">Next level</div><div data-w="level"></div></div>' +
         '<div><div class="stc-section-title">Found and fought</div><div data-w="loot"></div>' +
           '<div class="stc-section-title" style="margin-top:10px">Active boosts</div><div data-w="boosts"></div></div>' +
-        '<div><div class="stc-section-title">Past sessions</div><div data-w="history"></div></div>' +
+        '<div><div class="stc-section-title" style="display:flex;justify-content:space-between;align-items:center">Past sessions' +
+          '<button class="stc-icon-btn" data-manage-sessions title="Edit, add, copy or remove sessions" style="font-size:12px;text-transform:none;letter-spacing:0">Manage ✎</button></div>' +
+          '<div data-w="history"></div></div>' +
       '</div>';
   }
+
+  // ---------------------------------------------------------------------------
+  // Sessions manager: change a session's time, add one by hand, copy one to another browser, remove one
+  // ---------------------------------------------------------------------------
+  const SESSION_CODE = 'STC-SESSION:';
+  const sessionsWin = document.createElement('div');
+  sessionsWin.id = 'stc-sessions';
+  sessionsWin.innerHTML =
+    '<div class="stc-win"><div class="stc-win-head"><span>Sessions</span><button class="stc-icon-btn" data-close-sessions title="Close (Esc)" style="font-size:18px">\u00D7</button></div>' +
+    '<div class="stc-win-body">' +
+      '<div class="stc-btns" style="margin-top:4px">' +
+        '<button class="' + GAME.button + '" data-sess-add>Add a session</button>' +
+        '<button class="' + GAME.button2 + '" data-sess-import>Paste a copied session</button>' +
+        '<button class="' + GAME.button2 + '" data-export-csv>Export CSV</button></div>' +
+      '<div data-sess-form style="display:none"></div>' +
+      '<div data-sess-paste style="display:none;margin:8px 0">' +
+        '<textarea placeholder="Paste one or more copied sessions here (they start with ' + SESSION_CODE + ')"></textarea>' +
+        '<div class="stc-btns"><button class="' + GAME.button + '" data-sess-paste-save>Add them</button></div></div>' +
+      '<div class="stc-note" data-sess-msg></div>' +
+      '<div data-sess-list></div>' +
+    '</div></div>';
+  document.body.appendChild(sessionsWin);
+
+  function openSessions() {
+    closeSettings();
+    sessionsWin.querySelector('[data-sess-form]').style.display = 'none';
+    sessionsWin.querySelector('[data-sess-paste]').style.display = 'none';
+    sessionsWin.querySelector('[data-sess-msg]').textContent = '';
+    renderSessionList();
+    sessionsWin.classList.add('open');
+  }
+  function closeSessions() { sessionsWin.classList.remove('open'); }
+
+  function sessionMessage(text) { sessionsWin.querySelector('[data-sess-msg]').textContent = text; }
+
+  // Every past session, newest first, with its minutes editable in place
+  function renderSessionList() {
+    const history = load(KEY.history, []);
+    sessionsWin.querySelector('[data-sess-list]').innerHTML = history.length ? history.map(function (s) {
+      const mins = Math.max(1, Math.round((s.end - s.start) / MIN));
+      const when = new Date(s.start).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return '<div class="stc-sess" data-sess="' + s.start + '">' +
+        '<div><b>' + when + '</b>' + (s.manual ? muted(' · added by hand') : '') + '<br>' +
+          muted(fmt(s.steps) + ' steps · ' + short(s.exp || 0) + ' EXP · ' + short(s.gold || 0) + ' gold · ' + fmt(s.fought || 0) + ' fought') + '</div>' +
+        '<div class="stc-sess-tools"><input type="number" min="1" value="' + mins + '" data-sess-minutes title="Minutes played"> ' + muted('min') +
+          '<button class="stc-icon-btn" data-sess-copy title="Copy, to paste in another browser">\uD83D\uDCCB</button>' +
+          '<button class="stc-icon-btn" data-sess-remove title="Remove">\u00D7</button></div></div>';
+    }).join('') : muted('No finished sessions yet.');
+  }
+
+  function changeSession(start, change) {
+    update(KEY.history, (h) => {
+      const s = h.find((x) => x.start === start);
+      if (s) change(s);
+    }, []);
+    historyDrawn = null; // redraw the list in the walking card
+  }
+
+  // Copying: the session as text, safe to paste anywhere
+  function sessionCode(s) {
+    const data = { v: 1, start: s.start, end: s.end, steps: s.steps, exp: s.exp, gold: s.gold, fought: s.fought || 0, loot: s.loot || {} };
+    return SESSION_CODE + btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+    return Promise.resolve();
+  }
+
+  // Adds sessions to the list; skips ones that are already there (same start time)
+  function addSessions(list) {
+    let added = 0;
+    update(KEY.history, (h) => {
+      list.forEach(function (s) {
+        if (!s || !(s.start > 0) || !(s.end > s.start) || h.some((x) => x.start === s.start)) return;
+        h.push({ start: s.start, end: s.end, steps: Math.max(0, s.steps | 0), exp: Math.max(0, +s.exp || 0), gold: Math.max(0, +s.gold || 0),
+          fought: Math.max(0, s.fought | 0), loot: s.loot && typeof s.loot === 'object' ? s.loot : {}, manual: !!s.manual });
+        added++;
+      });
+      h.sort((a, b) => b.start - a.start);
+      if (h.length > 200) h.length = 200;
+    }, []);
+    historyDrawn = null;
+    return added;
+  }
+
+  function readSessionCodes(text) {
+    return (text.match(new RegExp(SESSION_CODE.replace('-', '\\-') + '[A-Za-z0-9+/=]+', 'g')) || []).map(function (code) {
+      try { return JSON.parse(decodeURIComponent(escape(atob(code.slice(SESSION_CODE.length))))); } catch (e) { return null; }
+    }).filter(Boolean);
+  }
+
+  // The "Add a session" form
+  function showAddForm() {
+    const form = sessionsWin.querySelector('[data-sess-form]');
+    const now = new Date(Date.now() - 60 * MIN);
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * MIN).toISOString().slice(0, 16);
+    form.innerHTML = '<div class="stc-form">' +
+      '<label>Started <input type="datetime-local" data-f="start" value="' + local + '"></label>' +
+      '<label>Minutes played <input type="number" min="1" data-f="minutes" value="60"></label>' +
+      '<label>Steps <input type="number" min="0" data-f="steps" value="0"></label>' +
+      '<label>EXP <input type="number" min="0" data-f="exp" value="0"></label>' +
+      '<label>Gold <input type="number" min="0" data-f="gold" value="0"></label>' +
+      '<label>Enemies fought <input type="number" min="0" data-f="fought" value="0"></label></div>' +
+      '<div class="stc-btns"><button class="' + GAME.button + '" data-sess-add-save>Save session</button></div>';
+    form.style.display = '';
+    sessionsWin.querySelector('[data-sess-paste]').style.display = 'none';
+  }
+
+  sessionsWin.addEventListener('click', function (e) {
+    const t = e.target;
+    if (t === sessionsWin || t.closest('[data-close-sessions]')) { closeSessions(); return; }
+    if (t.closest('[data-sess-add]')) { showAddForm(); return; }
+    if (t.closest('[data-sess-import]')) {
+      const paste = sessionsWin.querySelector('[data-sess-paste]');
+      paste.style.display = paste.style.display === 'none' ? '' : 'none';
+      sessionsWin.querySelector('[data-sess-form]').style.display = 'none';
+      return;
+    }
+    if (t.closest('[data-sess-add-save]')) {
+      const f = (name) => sessionsWin.querySelector('[data-f="' + name + '"]').value;
+      const start = new Date(f('start')).getTime();
+      const minutes = Math.max(1, parseInt(f('minutes'), 10) || 0);
+      if (!(start > 0)) { sessionMessage('Pick when the session started.'); return; }
+      const added = addSessions([{ start: start, end: start + minutes * MIN, steps: +f('steps'), exp: +f('exp'), gold: +f('gold'), fought: +f('fought'), manual: true }]);
+      sessionsWin.querySelector('[data-sess-form]').style.display = 'none';
+      sessionMessage(added ? 'Session added.' : 'There is already a session that started at that exact time.');
+      renderSessionList();
+      return;
+    }
+    if (t.closest('[data-sess-paste-save]')) {
+      const area = sessionsWin.querySelector('[data-sess-paste] textarea');
+      const found = readSessionCodes(area.value);
+      const added = addSessions(found);
+      sessionMessage(!found.length ? 'No copied sessions found in that text.' : added + ' of ' + found.length + ' added' + (added < found.length ? ' (the rest were already here).' : '.'));
+      if (added) area.value = '';
+      renderSessionList();
+      return;
+    }
+    const row = t.closest('[data-sess]');
+    if (!row) return;
+    const start = Number(row.dataset.sess);
+    const s = load(KEY.history, []).find((x) => x.start === start);
+    if (!s) return;
+    if (t.closest('[data-sess-copy]')) {
+      copyText(sessionCode(s)).then(() => sessionMessage('Copied. In the other browser, open Sessions → "Paste a copied session".'),
+        () => sessionMessage('Copying was blocked by the browser.'));
+      return;
+    }
+    if (t.closest('[data-sess-remove]')) {
+      if (!confirm('Remove this session? This can\u2019t be undone.')) return;
+      update(KEY.history, (h) => { const i = h.findIndex((x) => x.start === start); if (i !== -1) h.splice(i, 1); }, []);
+      historyDrawn = null;
+      renderSessionList();
+    }
+  });
+
+  // Changing the minutes saves right away
+  sessionsWin.addEventListener('change', function (e) {
+    const input = e.target.closest('[data-sess-minutes]');
+    if (!input) return;
+    const start = Number(input.closest('[data-sess]').dataset.sess);
+    const minutes = Math.max(1, parseInt(input.value, 10) || 1);
+    changeSession(start, (s) => { s.end = s.start + minutes * MIN; });
+    sessionMessage('Time saved: ' + minutes + ' minutes.');
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sessionsWin.classList.contains('open')) closeSessions();
+  });
 
   // ---------------------------------------------------------------------------
   // Walking card and strip (Travel page)
@@ -2165,6 +2360,7 @@
       return;
     }
     if (t.closest('[data-export-csv]')) { exportHistory(); return; }
+    if (t.closest('[data-manage-sessions]')) { e.preventDefault(); openSessions(); return; }
     const scan = t.closest('[data-scan]');
     if (scan) { scanCollection((message) => { scan.textContent = message; }); return; }
     const remove = t.closest('[data-remove-session]');
