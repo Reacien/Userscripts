@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.35.2
+// @version      0.36.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -328,6 +328,7 @@
 
     '/profession': function (html) {
       const d = readGameData(html);
+      readProfessionLevel(html, d);
       if ('profession.rewards.player_experience' in d) {
         update(KEY.data, (data) => {
           data.profession = {
@@ -414,6 +415,33 @@
       return endsAt && endsAt > Date.now() ? endsAt + RECHECK_AFTER_END : null;
     }
   };
+
+  // Professions: each one has its own level (50 x level profession EXP per level, like everything else).
+  // The Profession page shows the one you have selected: its name, "Level 25" and "1,118 EXP needed".
+  const PROFESSIONS = ['Blacksmith', 'Warrior', 'Thief', 'Chef', 'Rogue', 'Guard', 'Defender', 'Banker'];
+
+  function readProfessionLevel(html, d) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // Join the page's pieces of text with spaces, so "Thief" + "Level 25" never run together
+    const root = doc.querySelector('main') || doc.body;
+    const text = [...root.querySelectorAll('*')].filter((el) => !el.children.length && !/^(SCRIPT|STYLE)$/.test(el.tagName))
+      .map((el) => el.textContent.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ');
+    const head = text.match(new RegExp('\\b(' + PROFESSIONS.join('|') + ')\\b [^]{0,80}?Level ([\\d,]+)'));
+    const need = text.match(/Experience\s*([\d,]+)\s*EXP needed/i);
+    if (!head) return;
+    saveProfessionLevel(head[1], toNumber(head[2]), need ? toNumber(need[1]) : null, 'game', d['profession.rewards.profession_experience']);
+  }
+
+  function saveProfessionLevel(name, level, expNeeded, source, expPerMin) {
+    if (!PROFESSIONS.includes(name) || !(level > 0)) return;
+    update(KEY.data, (data) => {
+      data.professions = data.professions || {};
+      const entry = { level: level, expNeeded: expNeeded, source: source, seenAt: Date.now() };
+      if (expPerMin) entry.expPerMin = expPerMin;
+      data.professions[name] = entry;
+      if (source === 'game') data.currentProfession = name;
+    });
+  }
 
   // Crafting: the page carries the start, server and end times (in seconds) of your current craft.
   // When the end has passed, your items are ready to collect; "not currently crafting" means nothing is going on.
@@ -1236,6 +1264,8 @@
     #stc-settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; }
     #stc-settings input[type=number] { width: 96px; }
     #stc-settings input[type=password] { width: 100%; }
+    #stc-settings .stc-prof-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    #stc-settings .stc-prof-grid input { width: 80px; }
     .stc-ui input[type=number], .stc-ui input[type=password], #stc-settings input[type=number], #stc-settings input[type=password] {
       padding: 4px 8px; border-radius: 6px; border: 1px solid var(--stc-border); background: #0a0a0a; color: var(--stc-text); font-size: 13px; }
     /* The game restyles checkboxes and sliders; use the browser's own inside our UI. */
@@ -1344,8 +1374,25 @@
     });
   }
 
+  // Profession levels in Settings: show what's known, save what you type
+  function bindProfessionLevels(root) {
+    const all = load(KEY.data, {}).professions || {};
+    root.querySelectorAll('[data-prof-level-input]').forEach(function (input) {
+      const p = all[input.dataset.profLevelInput];
+      if (document.activeElement !== input) input.value = p ? p.level : '';
+      input.title = p ? (p.source === 'game' ? 'Read from the game ' : 'Filled in by you ') + timeAgo(p.seenAt) : 'Not known yet';
+      if (input.dataset.bound) return;
+      input.dataset.bound = '1';
+      input.addEventListener('change', function () {
+        const level = parseInt(input.value, 10);
+        if (level > 0) saveProfessionLevel(input.dataset.profLevelInput, level, null, 'you');
+      });
+    });
+  }
+
   function bindSettingInputs(root) {
     bindRowToggles(root);
+    bindProfessionLevels(root);
     root.querySelectorAll('[data-key]').forEach(function (input) {
       if (input.dataset.bound) return;
       input.dataset.bound = '1';
@@ -1391,6 +1438,10 @@
         <label>Tab title when step is ready <input type="checkbox" data-key="titleCue"></label>
         <div class="stc-btns"><button class="${GAME.button2}" id="stc-test">Test sound</button></div>
         <div class="stc-note">Turn alerts for each cooldown on or off with the 🔔 next to it in the Companion block.</div>
+
+        <div class="stc-section-title" data-prof-levels>Profession levels</div>
+        <div class="stc-prof-grid">${PROFESSIONS.map((n) => '<label>' + n + ' <input type="number" min="1" data-prof-level-input="' + n + '"></label>').join('')}</div>
+        <div class="stc-note">Fill in the levels you know. The one you have selected is read from the Profession page by itself, so it stays up to date. The SimpleMMO Hub shows these.</div>
 
         <div class="stc-section-title">Sessions</div>
         <label>End session after no activity (minutes, min 5) <input type="number" min="0" data-key="idleResetMinutes"></label>
@@ -1443,6 +1494,7 @@
     closeChat();
     settingsWin.classList.add('open');
     bindRowToggles(settingsWin); // show the current choices
+    bindProfessionLevels(settingsWin);
     renderApiStatus();
   }
 
@@ -2433,6 +2485,7 @@
     el.innerHTML = '<button type="button" class="stc-card-title stc-plan-toggle" data-plan-toggle style="margin-bottom:0">' +
         '<span class="' + GAME.title + '">Plan your shift</span><span data-plan-caret>▸</span>' +
         '<span class="stc-muted" style="font-size:11px;margin-left:auto">Companion</span></button>' +
+      '<div data-prof-level style="margin-top:8px"></div>' +
       '<div data-plan-body style="display:none;margin-top:10px">' +
         '<div class="stc-row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">What do you want to wait for?' +
           '<select data-plan-target></select><input type="time" data-plan-time style="display:none"></div>' +
@@ -2451,6 +2504,13 @@
       renderPlanner(planner);
     });
     el.addEventListener('click', function (e) {
+      if (e.target.closest('[data-open-prof-levels]')) {
+        e.preventDefault();
+        openSettings();
+        const section = settingsWin.querySelector('[data-prof-levels]');
+        if (section) section.scrollIntoView({ block: 'start' });
+        return;
+      }
       if (e.target.closest('[data-plan-toggle]')) {
         planner.open = !planner.open;
         el.querySelector('[data-plan-body]').style.display = planner.open ? '' : 'none';
@@ -2499,10 +2559,42 @@
     showToast('Filled in ' + minutes + ' minutes. Press Start Working and confirm to begin.');
   }
 
+  // 17 -> "17m", 135 -> "2h 15m", 3000 -> "2d 2h"
+  function workTime(minutes) {
+    const m = Math.ceil(minutes);
+    if (m < 60) return m + 'm';
+    if (m < 1440) return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    return Math.floor(m / 1440) + 'd ' + Math.floor((m % 1440) / 60) + 'h';
+  }
+
+  // "Thief level 25: next level in about 2h 30m of work (15 EP)", and a nudge to fill in the other professions
+  function professionLevelLine(planner) {
+    const data = load(KEY.data, {});
+    const all = data.professions || {};
+    const name = data.currentProfession;
+    const p = name && all[name];
+    let html = '';
+    if (p) {
+      const rate = p.expPerMin || 0;
+      const left = p.expNeeded !== null && p.expNeeded !== undefined ? p.expNeeded : 50 * p.level;
+      const minutes = rate ? left / rate : null;
+      html = '<div class="stc-row"><span>' + escapeHtml(name) + ' level <b>' + fmt(p.level) + '</b></span><span>' +
+        (minutes === null ? muted('open this page once to measure') :
+          'next level in ' + workTime(minutes) + muted(' of work · ' + Math.ceil(minutes / 10) + ' EP · ' + fmt(left) + ' EXP')) + '</span></div>';
+    }
+    const known = PROFESSIONS.filter((x) => all[x]).length;
+    if (known < PROFESSIONS.length) {
+      html += '<div class="stc-note" style="margin-top:2px">Levels known for ' + known + ' of ' + PROFESSIONS.length + ' professions. ' +
+        '<a href="#" data-open-prof-levels>Fill in the ones you know</a> (or they\u2019re read when you switch to them).</div>';
+    }
+    setHtml(planner.el.querySelector('[data-prof-level]'), html);
+  }
+
   function renderPlanner(planner) {
     const el = planner.el;
     const doc = planner.doc;
     const now = Date.now();
+    professionLevelLine(planner);
 
     if (planner.pending) {
       const box = minutesBox(doc);
@@ -3403,6 +3495,8 @@
         stepsPerHour: hours > 0.2 ? Math.round(steps / hours) : null
       },
       profession: data.profession || null,
+      professions: data.professions || null,          // { Thief: { level, expNeeded, expPerMin }, ... }
+      currentProfession: data.currentProfession || null,
       marketGoldPerDiamond: data.market && data.market.listings && data.market.listings[0] ? data.market.listings[0].price : null
     };
   }
