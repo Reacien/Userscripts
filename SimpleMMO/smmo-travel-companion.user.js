@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.36.0
+// @version      0.37.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -396,6 +396,7 @@
 
     '/battle': function (html) {
       const d = readGameData(html);
+      saveArena(d['battle.arena.tiers']);
       const boss = d['battle.world_boss.next'];
       if (boss && typeof boss.available_in === 'number') {
         const endsAt = Date.now() + boss.available_in;
@@ -415,6 +416,30 @@
       return endsAt && endsAt > Date.now() ? endsAt + RECHECK_AFTER_END : null;
     }
   };
+
+  // Battle Arena: which league you're in and how far along it you are
+  function saveArena(tiers) {
+    if (!Array.isArray(tiers) || !tiers.length) return;
+    const i = Math.max(0, tiers.findIndex((t) => t.is_current));
+    const t = tiers[i];
+    update(KEY.data, (data) => {
+      data.arena = {
+        index: i, name: t.name, wins: t.progress ? t.progress.current : 0, required: t.progress ? t.progress.required : 0,
+        completed: !!t.is_completed, cost: t.cost, bankCost: t.bank_cost, expMultiplier: t.modifiers ? t.modifiers.experience : null,
+        expMin: t.experience_range ? t.experience_range.min : null, expMax: t.experience_range ? t.experience_range.max : null,
+        reward: t.completion_rewards || null, seenAt: Date.now()
+      };
+    });
+  }
+
+  // Your travel boosts (EXP, gold, rarity...), as the Travel page shows them
+  function saveBoosts(list) {
+    if (!Array.isArray(list)) return;
+    const pick = (name) => { const b = list.find((x) => x && new RegExp('^' + name, 'i').test(x.name)); return b ? b.value : 0; };
+    const boosts = { exp: pick('EXP'), gold: pick('Gold'), itemRarity: pick('Item Rarity'), seenAt: Date.now() };
+    const old = load(KEY.data, {}).boosts;
+    if (!old || old.exp !== boosts.exp || old.gold !== boosts.gold || Date.now() - old.seenAt > 5 * MIN) update(KEY.data, (d) => { d.boosts = boosts; });
+  }
 
   // Professions: each one has its own level (50 x level profession EXP per level, like everything else).
   // The Profession page shows the one you have selected: its name, "Level 25" and "1,118 EXP needed".
@@ -708,6 +733,8 @@
     if (PATH.startsWith('/crafting')) readCraftingTimer(document.documentElement.innerHTML);
 
     if (isTravelPage) {
+      const travel = getTravelData();
+      if (travel) saveBoosts(travel.boosts);
       const data = findAlpineData('sprint');
       if (data && data.sprint) {
         setTimer('sprint', data.sprint.active ? { active: true, endsAt: Date.now() + data.sprint.ms_remaining } : { active: false, endsAt: null });
@@ -828,7 +855,7 @@
   const SIDE_ROWS = [{ id: 'level', name: 'Level progress' }]
     .concat(TIMERS.map((d) => ({ id: d.id, name: d.name })))
     .concat(DAILIES.map((d) => ({ id: d.id, name: d.name })))
-    .concat([{ id: 'orphanage', name: 'Orphanage tier' }, { id: 'hp', name: 'HP' }, { id: 'messages', name: 'Messages' }]);
+    .concat([{ id: 'orphanage', name: 'Orphanage tier' }, { id: 'arena', name: 'Arena league' }, { id: 'hp', name: 'HP' }, { id: 'messages', name: 'Messages' }]);
 
   // Hidden rows also stop alerting and don't count toward the badge.
   function rowShown(id) { return !(settings.hiddenRows || []).includes(id); }
@@ -1734,6 +1761,7 @@
         }).join('') +
         '<div class="stc-sep" data-s="mid-sep"></div>' +
         DAILIES.map((def) => '<div class="stc-row" data-row="' + def.id + '"><span>' + link(def.name.replace('Orphanage daily buff', 'Orphanage buff'), def.page) + '</span><span data-d="' + def.id + '"></span></div>').join('') +
+        '<div class="stc-row" data-row="arena"><span>' + link('Arena', '/battle') + '</span><span data-s="arena"></span></div>' +
         '<div class="stc-row" data-row="orphanage"><span class="stc-name">' + link('Orphanage', '/orphanage') +
           '<button class="stc-icon-btn stc-bell" data-bell="orphanage3"></button></span><span data-s="orphanage"></span></div>' +
         '<div class="stc-row" data-row="hp"><span class="stc-muted">HP</span><span data-s="hp"></span></div>' +
@@ -1756,7 +1784,13 @@
     if (newMenu) {
       // A menu section of its own, above Main, made like the game's sections (and folds the same way).
       const gameHead = newMenu.querySelector(':scope > div > button');
-      const chevron = gameHead && gameHead.querySelector('svg') ? gameHead.querySelector('svg').outerHTML : '\u25BE';
+      // Copy the game's arrow without its Alpine bindings (they only work inside the game's own sections)
+      let chevron = '\u25BE';
+      if (gameHead && gameHead.querySelector('svg')) {
+        const svg = gameHead.querySelector('svg').cloneNode(true);
+        [svg, ...svg.querySelectorAll('*')].forEach((n) => [...n.attributes].forEach((a) => { if (/^(:|x-|@)/.test(a.name)) n.removeAttribute(a.name); }));
+        chevron = svg.outerHTML;
+      }
       sideEl.className = 'pl-4 pr-6 stc-side stc-side-new stc-ui';
       sideEl.innerHTML =
         '<div class="border-t border-dashed border-gray-700/50 my-4"></div>' +
@@ -1832,7 +1866,9 @@
     orphBell.title = settings.alerts.orphanage3 ? 'Alert when Tier 3 is active: on' : 'Alert when Tier 3 is active: off';
     setHtml(part('[data-s="orphanage"]'), orphanageShort(load(KEY.data, {}).orphanage));
     setHtml(part('[data-s="hp"]'), timers.hp ? short(timers.hp.current) + '/' + short(timers.hp.max) : muted('—'));
-    ['orphanageBuff', 'worshipUse', 'orphanage', 'hp'].forEach((id) => { part('[data-row="' + id + '"]').style.display = rowShown(id) ? '' : 'none'; });
+    const arena = load(KEY.data, {}).arena;
+    setHtml(part('[data-s="arena"]'), arena ? escapeHtml(arena.name.replace(/ League$/, '')) + muted(' ' + fmt(arena.wins) + '/' + fmt(arena.required)) : muted('\u2014'));
+    ['orphanageBuff', 'worshipUse', 'orphanage', 'arena', 'hp'].forEach((id) => { part('[data-row="' + id + '"]').style.display = rowShown(id) ? '' : 'none'; });
     // The line between the cooldowns and the rows below only when both have something showing.
     const anyShown = (ids) => ids.some((id) => { const r = part('[data-row="' + id + '"]'); return r && r.style.display !== 'none'; });
     part('[data-s="mid-sep"]').style.display = anyShown(TIMERS.map((d) => d.id)) && anyShown(['orphanageBuff', 'worshipUse', 'orphanage', 'hp', 'messages']) ? '' : 'none';
@@ -1912,7 +1948,9 @@
         '<div><div class="stc-section-title">Orphanage</div><div data-c="orphanage"></div></div></div>' };
     }
     if (PATH.startsWith('/battle')) {
-      return { title: 'Next world boss', html: '<div data-c="boss"></div>' };
+      return { title: 'Battle', html: '<div class="stc-grid">' +
+        '<div><div class="stc-section-title">Your arena league</div><div data-c="arena"></div></div>' +
+        '<div><div class="stc-section-title">Next world boss</div><div data-c="boss"></div></div></div>' };
     }
     if (id && PATH.startsWith('/collection/' + id)) {
       return { title: 'Collection for NEW badges', html: '<div data-c="collection"></div>' +
@@ -2301,6 +2339,23 @@
         : muted('Needs your API key'));
     }
     if (part('orphanage')) setHtml(part('orphanage'), renderOrphanage(data.orphanage));
+    if (part('arena')) {
+      const a = data.arena;
+      if (!a) setHtml(part('arena'), muted('Not read yet'));
+      else {
+        const left = Math.max(0, a.required - a.wins);
+        const pct = a.required ? Math.min(100, a.wins / a.required * 100) : 0;
+        const ep = energyNow();
+        setHtml(part('arena'),
+          '<div class="stc-row"><span><b>' + escapeHtml(a.name) + '</b></span><span>' + fmt(a.wins) + ' / ' + fmt(a.required) + ' wins</span></div>' +
+          '<div class="stc-bar"><div style="width:' + pct.toFixed(1) + '%"></div></div>' +
+          (a.completed ? '<div class="stc-row"><span class="stc-ready">Finished</span></div>' :
+            '<div class="stc-row"><span class="stc-muted">Still to win</span><span>' + fmt(left) + ' fights · ' + fmt(left) + ' EP · ' + short(left * a.cost) + ' gold</span></div>' +
+            (ep ? '<div class="stc-row"><span class="stc-muted">With your energy</span><span>' + (ep.current >= left ? ready('enough now') :
+              fmt(ep.current) + ' now, the rest in ' + workTime((left - ep.current) * 5)) + '</span></div>' : '')) +
+          (a.reward ? '<div class="stc-note" style="margin-top:2px">Reward: ' + (a.reward.diamonds || 0) + ' diamonds, ' + (a.reward.gold_keys || 0) + ' gold key' + (a.reward.gold_keys === 1 ? '' : 's') + '</div>' : ''));
+      }
+    }
     if (part('boss')) {
       const boss = timers.boss;
       if (boss && boss.name && !boss.none) {
@@ -2895,22 +2950,28 @@
 
     // Don't redraw while you're typing in it
     if (old && old.contains(doc.activeElement) && doc.activeElement.matches('input')) return;
-    // Put our box just above the game's Start Crafting button (the game sometimes redraws the window)
+    // Put our box at the top of the game's crafting window, above "What type of items do you want to craft?"
+    // (the game sometimes redraws the window, so this runs again when it's gone)
     let box = old;
     if (!box) {
-      const start = [...doc.querySelectorAll('button')]
-        .find((b) => /Start Crafting/.test(b.textContent) && b.offsetParent && b.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_PRECEDING);
-      if (!start) return;
+      const question = [...doc.querySelectorAll('p, span, div, label, h2, h3')].find((el) => !el.children.length && /What type of items do you want to craft/i.test(el.textContent));
+      if (!question) return;
+      // The first ancestor that holds both the question and the quantity box is the window's content
+      let panel = question.parentElement;
+      while (panel && !panel.contains(input)) panel = panel.parentElement;
+      if (!panel) return;
+      const top = [...panel.children].find((c) => c.contains(question)) || panel.firstChild;
       ensureStyle(doc);
       box = doc.createElement('div');
       box.className = 'stc-craft stc-ui';
-      start.parentElement.insertBefore(box, start);
+      panel.insertBefore(box, top);
       box.addEventListener('click', function (e) {
         const fillBtn = e.target.closest('[data-craft-fill]');
-        if (fillBtn) {
-          input.value = fillBtn.dataset.craftFill;
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
+        const box2 = doc.querySelector('input[wire\\:model="wizard.quantity"]'); // the game may have redrawn it
+        if (fillBtn && box2) {
+          box2.value = fillBtn.dataset.craftFill;
+          box2.dispatchEvent(new Event('input', { bubbles: true }));
+          box2.dispatchEvent(new Event('change', { bubbles: true }));
         }
       });
       box.addEventListener('change', function (e) {
@@ -3495,7 +3556,9 @@
         stepsPerHour: hours > 0.2 ? Math.round(steps / hours) : null
       },
       profession: data.profession || null,
-      professions: data.professions || null,          // { Thief: { level, expNeeded, expPerMin }, ... }
+      professions: data.professions || null,
+      boosts: data.boosts || null,                    // travel boosts in %: { exp, gold, itemRarity }
+      arena: data.arena || null,                      // current league and wins          // { Thief: { level, expNeeded, expPerMin }, ... }
       currentProfession: data.currentProfession || null,
       marketGoldPerDiamond: data.market && data.market.listings && data.market.listings[0] ? data.market.listings[0].price : null
     };
