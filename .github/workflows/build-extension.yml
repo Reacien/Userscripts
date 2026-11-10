@@ -34,8 +34,8 @@ jobs:
 
       - name: Copy built files
         run: |
-          cp dist/content.js extension-repo/content.js
-          cp dist/styles.css extension-repo/styles.css
+          cp SimpleMMO/dist/content.js extension-repo/content.js
+          cp SimpleMMO/dist/styles.css extension-repo/styles.css
 
       - name: Commit and push
         working-directory: extension-repo
