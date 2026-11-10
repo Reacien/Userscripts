@@ -1,0 +1,51 @@
+name: Build extension
+
+on:
+  push:
+    paths:
+      - "SimpleMMO/smmo-travel-companion.user.js"
+      - "SimpleMMO/build_extension.py"
+      - ".github/workflows/build-extension.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Userscripts repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run build script
+        run: python SimpleMMO/build_extension.py
+
+      - name: Checkout extension repo
+        uses: actions/checkout@v4
+        with:
+          repository: Reacien/smmo-travel-companion
+          token: ${{ secrets.EXTENSION_REPO_TOKEN }}
+          path: extension-repo
+
+      - name: Copy built files
+        run: |
+          cp SimpleMMO/dist/content.js extension-repo/content.js
+          cp SimpleMMO/dist/styles.css extension-repo/styles.css
+
+      - name: Commit and push
+        working-directory: extension-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add content.js styles.css
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Sync extension from userscript (auto-build)"
+            git push
+          fi
