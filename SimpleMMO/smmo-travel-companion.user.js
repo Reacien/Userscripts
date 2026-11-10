@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.39.1
+// @version      0.40.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -53,6 +53,7 @@
     verifyAlert: true,
     // Walking
     idleResetMinutes: 30,
+    resumeSessionOnStep: false,
     // Data sources
     backgroundChecks: true,
     bgRefreshMinutes: 15,
@@ -133,12 +134,15 @@
 
   function loadSession() {
     const saved = load(KEY.session, {});
-    // Sessions saved by older versions: running if they had steps.
     if (saved.active === undefined) {
       saved.active = saved.steps > 0;
       saved.lastActivityAt = saved.lastStepAt || saved.startedAt;
     }
-    return Object.assign(emptySession(), saved);
+    const s = Object.assign(emptySession(), saved);
+    s.paused = !!s.active && !!s.paused;
+    if (!Number.isFinite(s.recordedMs)) s.recordedMs = 0;
+    if (s.active && !s.paused && !Number.isFinite(s.runningSince)) s.runningSince = s.startedAt;
+    return s;
   }
 
   let settings = load(KEY.settings, DEFAULT_SETTINGS);
@@ -1031,8 +1035,14 @@
   // Without an API key the EXP bar only moves in 1% jumps, so the walking EXP is the minimum.
   function sessionExp() {
     if (!session.active) return 0;
+    if (session.paused) return Math.max(session.exp || 0, session.expBank || 0);
     const total = currentTotalExp();
-    if (total === null || session.startTotal === undefined || session.startTotal === null) return session.exp;
+    if (session.expBank !== undefined) {
+      const stepGain = Math.max(0, (session.exp || 0) - (session.expStepBase || 0));
+      const totalGain = total !== null && session.expSegmentBase != null ? Math.max(0, total - session.expSegmentBase) : 0;
+      return Math.max(session.exp || 0, session.expBank + Math.max(stepGain, totalGain));
+    }
+    if (total === null || session.startTotal == null) return session.exp;
     return Math.max(session.exp, total - session.startTotal);
   }
 
@@ -1512,6 +1522,8 @@
         <div class="stc-note">Fill in the levels you know. The one you have selected is read from the Profession page by itself, so it stays up to date. The SimpleMMO Hub shows these.</div>
 
         <div class="stc-section-title">Sessions</div>
+        <label>Automatically resume a paused session when taking a step <input type="checkbox" data-key="resumeSessionOnStep"></label>
+        <div class="stc-note">Off by default: use Resume to continue recording. When enabled, your next successful step resumes the session and is counted. Pausing never pauses the game.</div>
         <label>End session after no activity (minutes, min 5) <input type="number" min="0" data-key="idleResetMinutes"></label>
         <div class="stc-note">A session starts with your first step. If you don't step or fight for this long, it ends at your last action, so the time away isn't counted. 0 = only end it yourself.</div>
         <div class="stc-btns"><button class="${GAME.button2}" data-manage-sessions>Manage sessions</button></div>
@@ -1621,7 +1633,7 @@
   function archiveSession(s, endAt) {
     if (!s || !s.steps) return;
     update(KEY.history, (h) => {
-      h.unshift({ start: s.startedAt, end: endAt, steps: s.steps, gold: s.gold, exp: s.exp, loot: s.loot || {}, fought: s.fought || 0 });
+      h.unshift({ start: s.startedAt, end: endAt, durationMs: sessionDurationAt(s, endAt), steps: s.steps, gold: s.gold, exp: s.exp, loot: s.loot || {}, fought: s.fought || 0 });
       if (h.length > 200) h.length = 200;
     }, []);
   }
@@ -1639,23 +1651,61 @@
   }
 
   function checkSessionIdle() {
-    if (!session.active) return;
+    if (!session.active || session.paused) return;
     const last = session.lastActivityAt || session.startedAt;
     if (Date.now() - last > idleLimitMs()) endSession(last);
   }
 
   // How long the session has run so far.
   function sessionDuration() {
-    return session.active ? Date.now() - session.startedAt : 0;
+    return sessionDurationAt(session, Date.now());
+  }
+
+  function sessionDurationAt(s, at) {
+    if (!s || !s.active) return 0;
+    const bank = Number.isFinite(s.recordedMs) ? Math.max(0, s.recordedMs) : 0;
+    if (s.paused) return bank;
+    const since = Number.isFinite(s.runningSince) ? s.runningSince : s.startedAt;
+    return bank + Math.max(0, at - (since || at));
+  }
+
+  function historyDuration(s) {
+    return Number.isFinite(s.durationMs) ? Math.max(0, s.durationMs) : Math.max(0, s.end - s.start);
+  }
+
+  function pauseSession() {
+    session = loadSession();
+    if (!session.active || session.paused) return;
+    const now = Date.now();
+    session.expBank = sessionExp();
+    session.recordedMs = sessionDurationAt(session, now);
+    session.paused = true;
+    session.pausedAt = now;
+    session.runningSince = null;
+    save(KEY.session, session);
+  }
+
+  function resumeSession(stepExp) {
+    if (!session.active || !session.paused) return;
+    const now = Date.now();
+    const total = currentTotalExp();
+    session.expBank = Math.max(session.exp || 0, session.expBank || 0);
+    session.expStepBase = session.exp || 0;
+    session.expSegmentBase = total === null ? null : total - (stepExp || 0);
+    session.paused = false;
+    session.pausedAt = null;
+    session.runningSince = now;
+    session.lastActivityAt = now;
+    save(KEY.session, session);
   }
 
   function exportHistory() {
     const rows = [['start', 'end', 'minutes', 'steps', 'gold', 'exp', 'fought'].concat(RARITIES)];
-    const all = [session].filter((s) => s.active && s.steps).map((s) => ({ start: s.startedAt, end: Date.now(), steps: s.steps, gold: s.gold, exp: sessionExp(), loot: s.loot, fought: s.fought }))
+    const all = [session].filter((s) => s.active && s.steps).map((s) => ({ start: s.startedAt, end: Date.now(), durationMs: sessionDuration(), steps: s.steps, gold: s.gold, exp: sessionExp(), loot: s.loot, fought: s.fought }))
       .concat(load(KEY.history, []));
     all.forEach(function (s) {
       rows.push([
-        new Date(s.start).toISOString(), new Date(s.end).toISOString(), Math.round((s.end - s.start) / MIN),
+        new Date(s.start).toISOString(), new Date(s.end).toISOString(), Math.round(historyDuration(s) / MIN),
         s.steps, s.gold, s.exp, s.fought || 0
       ].concat(RARITIES.map((r) => (s.loot && s.loot[r]) || 0)));
     });
@@ -2078,7 +2128,7 @@
           '<div class="stc-row"><span class="stc-muted">Gold</span><span data-w="gold"></span></div>' +
           '<div class="stc-row"><span class="stc-muted">EXP</span><span data-w="exp"></span></div>' +
           '<div class="stc-row"><span class="stc-muted">Per hour</span><span data-w="rates"></span></div>' +
-          '<div class="stc-btns"><button class="' + GAME.button + '" data-end-session>End session</button>' +
+          '<div class="stc-btns"><button class="' + GAME.button + '" data-toggle-session-pause disabled>Pause</button><button class="' + GAME.button2 + '" data-end-session>End session</button>' +
             '<button class="' + GAME.button2 + '" data-export-csv>Export CSV</button></div></div>' +
         '<div><div class="stc-section-title">Next level</div><div data-w="level"></div></div>' +
         '<div><div class="stc-section-title">Found and fought</div><div data-w="loot"></div>' +
@@ -2127,7 +2177,7 @@
   function renderSessionList() {
     const history = load(KEY.history, []);
     sessionsWin.querySelector('[data-sess-list]').innerHTML = history.length ? history.map(function (s) {
-      const mins = Math.max(1, Math.round((s.end - s.start) / MIN));
+      const mins = Math.max(1, Math.round(historyDuration(s) / MIN));
       const when = new Date(s.start).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
       return '<div class="stc-sess" data-sess="' + s.start + '">' +
         '<div><b>' + when + '</b>' + (s.manual ? muted(' · added by hand') : '') + '<br>' +
@@ -2148,7 +2198,7 @@
 
   // Copying: the session as text, safe to paste anywhere
   function sessionCode(s) {
-    const data = { v: 1, start: s.start, end: s.end, steps: s.steps, exp: s.exp, gold: s.gold, fought: s.fought || 0, loot: s.loot || {} };
+    const data = { v: 2, start: s.start, end: s.end, durationMs: historyDuration(s), steps: s.steps, exp: s.exp, gold: s.gold, fought: s.fought || 0, loot: s.loot || {} };
     return SESSION_CODE + btoa(unescape(encodeURIComponent(JSON.stringify(data))));
   }
 
@@ -2169,7 +2219,7 @@
     update(KEY.history, (h) => {
       list.forEach(function (s) {
         if (!s || !(s.start > 0) || !(s.end > s.start) || h.some((x) => x.start === s.start)) return;
-        h.push({ start: s.start, end: s.end, steps: Math.max(0, s.steps | 0), exp: Math.max(0, +s.exp || 0), gold: Math.max(0, +s.gold || 0),
+        h.push({ start: s.start, end: s.end, durationMs: historyDuration(s), steps: Math.max(0, s.steps | 0), exp: Math.max(0, +s.exp || 0), gold: Math.max(0, +s.gold || 0),
           fought: Math.max(0, s.fought | 0), loot: s.loot && typeof s.loot === 'object' ? s.loot : {}, manual: !!s.manual });
         added++;
       });
@@ -2257,7 +2307,10 @@
     if (!input) return;
     const start = Number(input.closest('[data-sess]').dataset.sess);
     const minutes = Math.max(1, parseInt(input.value, 10) || 1);
-    changeSession(start, (s) => { s.end = s.start + minutes * MIN; });
+    changeSession(start, (s) => {
+      s.durationMs = minutes * MIN;
+      if (s.durationMs > s.end - s.start) s.end = s.start + s.durationMs;
+    });
     sessionMessage('Time saved: ' + minutes + ' minutes.');
   });
 
@@ -2287,6 +2340,10 @@
     setHtml(part('exp'), fmt(exp));
     setHtml(part('rates'), session.active ? fmt(session.steps / hours) + ' steps · ' + short(exp / hours) + ' EXP' : muted('—'));
     walkCard.querySelector('[data-end-session]').disabled = !session.active;
+    const pauseButton = walkCard.querySelector('[data-toggle-session-pause]');
+    pauseButton.disabled = !session.active;
+    pauseButton.textContent = session.paused ? 'Resume' : 'Pause';
+    pauseButton.setAttribute('aria-pressed', String(!!session.paused));
 
     const info = levelInfo(timers);
     let stepsText = muted('take a few steps first');
@@ -2324,7 +2381,7 @@
     if (signature === historyDrawn) return;
     historyDrawn = signature;
     el.innerHTML = history.length ? history.slice(0, 8).map(function (s) {
-      const mins = Math.max(1, Math.round((s.end - s.start) / MIN));
+      const mins = Math.max(1, Math.round(historyDuration(s) / MIN));
       return '<div class="stc-row"><span class="stc-muted">' + new Date(s.start).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) +
         ' · ' + mins + 'm</span><span>' + fmt(s.steps) + ' steps · ' + short(s.exp) + ' EXP' +
         '<button class="stc-icon-btn" data-remove-session="' + s.start + '" title="Remove this session" style="margin-left:6px">×</button></span></div>';
@@ -2337,7 +2394,7 @@
     const info = levelInfo(timers);
     const boosts = activeBoosts() || [];
     const parts = [
-      session.active ? '<span>Session <b>' + formatDuration(sessionDuration()) + '</b></span>' : '<span class="stc-muted">No session yet: take a step to start</span>',
+      session.active ? '<span>' + (session.paused ? 'Paused' : 'Session') + ' <b>' + formatDuration(sessionDuration()) + '</b></span>' : '<span class="stc-muted">No session yet: take a step to start</span>',
       '<span>Steps <b>' + fmt(session.steps) + '</b></span>',
       '<span>EXP <b>' + short(sessionExp()) + '</b></span>',
       '<span>Gold <b>' + short(session.gold) + '</b></span>'
@@ -2535,7 +2592,17 @@
       applyDetailsOpen();
       return;
     }
+    if (t.closest('[data-toggle-session-pause]')) {
+      e.preventDefault();
+      session = loadSession();
+      if (session.paused) resumeSession(0);
+      else pauseSession();
+      if (isTravelPage) walkTick();
+      render();
+      return;
+    }
     if (t.closest('[data-end-session]')) {
+      session = loadSession();
       if (!session.active) return;
       if (!confirm('End this session and save it to Past sessions? Your next step starts a new one.')) return;
       endSession(Date.now());
@@ -3880,7 +3947,7 @@
     // Walking pace and gold from your past sessions
     const history = load(KEY.history, []).filter((h) => h.steps > 20 && h.end > h.start);
     const steps = history.reduce((a, h) => a + h.steps, 0);
-    const hours = history.reduce((a, h) => a + (h.end - h.start), 0) / 3600000;
+    const hours = history.reduce((a, h) => a + historyDuration(h), 0) / 3600000;
     const gold = history.reduce((a, h) => a + (h.gold || 0), 0);
     const total = p.stats && p.stats.total ? p.stats.total : null;
     return {
@@ -4116,6 +4183,8 @@
   function setWalkStatus(state) {
     if (!walkCard) return;
     let text = 'Open the Travel page to track steps';
+    if (session.active && session.paused) state = 'paused';
+    if (state === 'paused') text = 'Session paused — recording stopped';
     if (state === 'ready') text = 'Ready to step';
     if (state === 'wait') text = 'Cooling down\u2026';
     if (state === 'blocked') {
@@ -4168,7 +4237,8 @@
       return true;
     };
     // Fights count toward a running session; only a step starts one.
-    if (!session.active) return;
+    session = loadSession();
+    if (!session.active || session.paused) return;
     if (add(session)) save(KEY.session, session);
   }
 
@@ -4193,6 +4263,37 @@
     return named;
   }
 
+
+  function recordSessionStep(gold, exp) {
+    session = loadSession();
+    if (session.active && session.paused) {
+      if (!settings.resumeSessionOnStep) return;
+      resumeSession(exp);
+    }
+    if (!session.active) session = newSession(Date.now());
+    session.steps += 1;
+    session.lastStepAt = Date.now();
+    session.lastActivityAt = Date.now();
+    session.gold += gold;
+    session.exp += exp;
+    session.loot = session.loot || {};
+    session.lootLog = session.lootLog || [];
+    const encounter = stepEncounter();
+    if (encounter === 'npc') session.enemiesMet = (session.enemiesMet || 0) + 1;
+    if (encounter !== 'gather') {
+      readStepLoot().forEach(function (item) {
+        session.loot[item.rarity] = (session.loot[item.rarity] || 0) + 1;
+        session.lootLog.unshift({ t: Date.now(), name: item.name, rarity: item.rarity });
+      });
+    }
+    if (session.lootLog.length > 50) session.lootLog.length = 50;
+    if (session.startTotal == null) {
+      const total = currentTotalExp();
+      if (total !== null) session.startTotal = total - session.exp;
+    }
+    save(KEY.session, session);
+  }
+
   function walkTick() {
     const data = getTravelData();
     if (!data) { setWalkStatus(''); return; }
@@ -4215,36 +4316,13 @@
       travelBlocked = refused;
       const noResult = data.travel.heading === undefined && data.travel.exp === undefined;
       if (awaitingResult && !refused && !check && !noResult) {
-        if (!session.active) session = newSession(Date.now());
-        session.steps += 1;
-        session.lastStepAt = Date.now();
-        session.lastActivityAt = Date.now();
         const gold = toNumber(data.travel.gold);
         const exp = toNumber(data.travel.exp);
-        session.gold += gold;
-        session.exp += exp;
-        session.loot = session.loot || {};
-        session.lootLog = session.lootLog || [];
-        const encounter = stepEncounter();
-        if (encounter === 'npc') session.enemiesMet = (session.enemiesMet || 0) + 1;
-        if (encounter !== 'gather') {
-          readStepLoot().forEach(function (item) {
-            session.loot[item.rarity] = (session.loot[item.rarity] || 0) + 1;
-            session.lootLog.unshift({ t: Date.now(), name: item.name, rarity: item.rarity });
-          });
-        }
-        if (session.lootLog.length > 50) session.lootLog.length = 50;
+        // Live player estimates and lifetime statistics continue during a pause.
         update(KEY.lifetime, (l) => { l.steps = (l.steps || 0) + 1; l.exp = (l.exp || 0) + exp; });
         if (data.user) recordStepSample(toNumber(data.user.level), data.user.exp_percentage, exp);
-        // With the API, add the step's EXP until the next update. Without it, the game's
-        // own EXP bar (read on every step) is already up to date.
         update(KEY.timers, (t) => { if (t.level && !t.level.approx) t.level.gainedSince = (t.level.gainedSince || 0) + exp; });
-        // Remember your total EXP at the start of the session, so everything after it counts.
-        if (session.startTotal === undefined || session.startTotal === null) {
-          const total = currentTotalExp();
-          if (total !== null) session.startTotal = total - session.exp;
-        }
-        save(KEY.session, session);
+        recordSessionStep(gold, exp);
       }
       awaitingResult = false;
       // No sound here: you're on the page taking steps yourself. Only the tab title changes.
