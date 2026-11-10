@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.39.0
+// @version      0.39.1
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -1811,7 +1811,7 @@
   }
 
   const sideTools = '<span class="stc-tools"><button class="stc-icon-btn" title="Chat (Alt+M)" data-dock-toggle>💬</button>' +
-    '<button class="stc-icon-btn" title="Guild requirements" data-guild-toggle>🛡</button>' +
+    '<button class="stc-icon-btn" title="Guild requirements" data-guild-toggle>🛡️</button>' +
     '<button class="stc-icon-btn" title="Open the SimpleMMO Hub with your numbers filled in" data-open-hub>📊</button>' +
     '<button class="stc-icon-btn" title="Settings (Alt+C)" data-open-settings>⚙</button></span>';
 
@@ -3298,7 +3298,7 @@
     return html;
   }
 
-  // One renderer for the guild page card and the 🛡 popup
+  // One renderer for the guild page card and the 🛡️ popup
   function renderGuildReq(container) {
     if (container.contains(container.ownerDocument.activeElement) && container.ownerDocument.activeElement.matches('input, select')) return;
     setHtml(container, guildReqHtml());
@@ -3325,7 +3325,7 @@
     });
   }
 
-  // The 🛡 popup from the Companion block
+  // The 🛡️ popup from the Companion block
   const guildWin = document.createElement('div');
   guildWin.id = 'stc-guild';
   guildWin.innerHTML = '<div class="stc-win"><div class="stc-win-head"><span>Guild requirements</span>' +

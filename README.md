@@ -1,46 +1,46 @@
-## 📜 Script Catalog
+# 🧩 Reacien’s Userscripts
 
-| Name | Description | Last Updated |
-|------|-------------|-------------|
-| [mapgenie-icon-size-slider](./mapgenie-icon-size-slider.user.js) | Dynamically change icon size on MapGenie. Saves your preference. | 2025-09-30 |
-| [mapgenie-auto-hide-right-sidebar](./mapgenie-auto-hide-right-sidebar.user.js) | Automatically hides the right sidebar on page laod. | 2025-09-30 |
+A small collection of browser userscripts for quality-of-life improvements across the web.
 
----
+[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
+[![GitHub last commit](https://img.shields.io/github/last-commit/Reacien/Userscripts?label=last%20commit)](https://github.com/Reacien/Userscripts/commits)
 
-## 🚀 How to Use
+## 📜 Available scripts
 
-1. Install a Userscript Manager
-   Choose one of the following browser extensions:
-   - [Tampermonkey](https://www.tampermonkey.net/) (Chrome, Firefox, Safari, Edge, Opera) (my personal favorite)
-   - [Violentmonkey](https://violentmonkey.github.io/) (Chrome, Firefox, Edge)
-   - [Greasemonkey](https://www.greasespot.net/) (Firefox only)
-     
-2. Install a Script
-   Click on any script name in the catalog above, then click the "Raw" button. Your userscript manager should prompt you to install it.
+| Script | Description | Install | Last updated |
+|---|---|:---:|:---|
+| [MapGenie Icon Size Slider](./MapGenie/mapgenie-icon-size-slider.user.js) | Dynamically change icon size on MapGenie. Saves your preference. | [Install](./MapGenie/mapgenie-icon-size-slider.user.js) | <!-- LAST_UPDATED:MapGenie/mapgenie-icon-size-slider.user.js -->08 Nov 2026<!-- /LAST_UPDATED --> |
+| [MapGenie Auto-hide Right Sidebar](./MapGenie/mapgenie-auto-hide-right-sidebar.user.js) | Automatically hides the right sidebar on page load. | [Install](./MapGenie/mapgenie-auto-hide-right-sidebar.user.js) | <!-- LAST_UPDATED:MapGenie/mapgenie-auto-hide-right-sidebar.user.js -->08 Nov 2026<!-- /LAST_UPDATED --> |
+| [SimpleMMO Travel Companion](./SimpleMMO/smmo-travel-companion.user.js) | Keeps cooldowns, walking statistics and everyday SimpleMMO pages in one place. It shows information and opens the game’s own windows; it never clicks or plays for you. | [Install](./SimpleMMO/smmo-travel-companion.user.js) | <!-- LAST_UPDATED:SimpleMMO/smmo-travel-companion.user.js -->10 Nov 2026<!-- /LAST_UPDATED --> |
 
-3. Enjoy!  
-   The script will automatically run on compatible websites.
+## 🚀 Installation
 
----
+1. Install a userscript manager:
+   - [Tampermonkey](https://www.tampermonkey.net/) — Chrome, Firefox, Safari, Edge and Opera
+   - [Violentmonkey](https://violentmonkey.github.io/) — Chrome, Firefox and Edge
+   - [Greasemonkey](https://www.greasespot.net/) — Firefox
 
-## 🔄 Request an Update / Report a Problem
+2. Click **Install** beside a script, or open its `.user.js` file and select **Raw**.
 
-If a script isn’t working or needs an update:
-- Open an [Issue](https://github.com/Reacien/Userscripts/issues) and write the name of the script and describe what’s broken.
-- Optionally, mention websites, browser versions, or error messages.
+3. Your userscript manager should prompt you to install it.
 
-I do my best to patch things quickly!
-Polite and detailed reports help me fix bugs faster.
+## 🐞 Report an issue
 
----
+If a script stops working or needs an update, [open an issue](https://github.com/Reacien/Userscripts/issues) with:
 
-## 🛠️ Feedback & Contributing
-- ⭐️ Star this repo if you like the scripts!
-- Suggest new features by opening an [Issue](https://github.com/Reacien/Userscripts/issues).
-- Want to contribute code? Feel free to fork and submit a Pull Request.
+- The script name
+- The website and browser version
+- What you expected versus what happened
+- Any console errors, if applicable
 
----
+Polite, detailed reports make bugs easier to reproduce and fix.
+
+## 🤝 Contributing
+
+- ⭐ Star this repository if you find the scripts useful.
+- Open an issue to suggest a feature or report a problem.
+- Fork the repository and submit a pull request for improvements.
 
 ## 📄 License
 
-All scripts in this repository are provided as-is under the GNU GPLv3 License unless otherwise specified.
+All scripts are provided as-is under the [GNU GPLv3](https://www.gnu.org/licenses/gpl-3.0.html) unless otherwise specified.
