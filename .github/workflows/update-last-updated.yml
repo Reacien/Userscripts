@@ -1,0 +1,56 @@
+name: Update Last Updated dates
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.user.js'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-last-updated
+  cancel-in-progress: true
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update Last Updated dates
+        run: |
+          set -euo pipefail
+
+          for script in $(find . -type f -name '*.user.js' -not -path './.git/*' | sed 's|^\./||' | sort); do
+            date="$(git log -1 --format=%as -- "$script")"
+            marker_start="<!-- LAST_UPDATED:$script -->"
+            marker_end="<!-- /LAST_UPDATED -->"
+
+            if grep -qF "$marker_start" README.md; then
+              sed -i \
+                -e "s|$marker_start[^<]*$marker_end|$marker_start$date$marker_end|g" \
+                README.md
+            else
+              echo "::warning::No README marker found for $script"
+            fi
+          done
+
+      - name: Commit updated README
+        run: |
+          if git diff --quiet README.md; then
+            echo "No README changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: update Last Updated dates"
+          git push
