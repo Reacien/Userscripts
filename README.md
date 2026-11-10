@@ -9,9 +9,9 @@ A small collection of browser userscripts for quality-of-life improvements acros
 
 | Script | Description | Install | Last updated |
 |---|---|:---:|:---|
-| [MapGenie Icon Size Slider](./MapGenie/mapgenie-icon-size-slider.user.js) | Dynamically change icon size on MapGenie. Saves your preference. | [Install](./MapGenie/mapgenie-icon-size-slider.user.js) | <!-- LAST_UPDATED:MapGenie/mapgenie-icon-size-slider.user.js -->2026-11-08<!-- /LAST_UPDATED --> |
-| [MapGenie Auto-hide Right Sidebar](./MapGenie/mapgenie-auto-hide-right-sidebar.user.js) | Automatically hides the right sidebar on page load. | [Install](./MapGenie/mapgenie-auto-hide-right-sidebar.user.js) | <!-- LAST_UPDATED:MapGenie/mapgenie-auto-hide-right-sidebar.user.js -->2026-11-08<!-- /LAST_UPDATED --> |
-| [SimpleMMO Travel Companion](./SimpleMMO/smmo-travel-companion.user.js) | Keeps cooldowns, walking statistics and everyday SimpleMMO pages in one place. It shows information and opens the game’s own windows; it never clicks or plays for you. | [Install](./SimpleMMO/smmo-travel-companion.user.js) | <!-- LAST_UPDATED:SimpleMMO/smmo-travel-companion.user.js -->2026-11-10<!-- /LAST_UPDATED --> |
+| [MapGenie Icon Size Slider](./MapGenie/mapgenie-icon-size-slider.user.js) | Dynamically change icon size on MapGenie. Saves your preference. | [Install](./MapGenie/mapgenie-icon-size-slider.user.js) | <!-- LAST_UPDATED:MapGenie/mapgenie-icon-size-slider.user.js -->08 Nov 2026<!-- /LAST_UPDATED --> |
+| [MapGenie Auto-hide Right Sidebar](./MapGenie/mapgenie-auto-hide-right-sidebar.user.js) | Automatically hides the right sidebar on page load. | [Install](./MapGenie/mapgenie-auto-hide-right-sidebar.user.js) | <!-- LAST_UPDATED:MapGenie/mapgenie-auto-hide-right-sidebar.user.js -->08 Nov 2026<!-- /LAST_UPDATED --> |
+| [SimpleMMO Travel Companion](./SimpleMMO/smmo-travel-companion.user.js) | Keeps cooldowns, walking statistics and everyday SimpleMMO pages in one place. It shows information and opens the game’s own windows; it never clicks or plays for you. | [Install](./SimpleMMO/smmo-travel-companion.user.js) | <!-- LAST_UPDATED:SimpleMMO/smmo-travel-companion.user.js -->10 Nov 2026<!-- /LAST_UPDATED --> |
 
 ## 🚀 Installation
 
