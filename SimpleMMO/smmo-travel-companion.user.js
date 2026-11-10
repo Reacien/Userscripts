@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.37.0
+// @version      0.39.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -37,6 +37,8 @@
     apiCalls: 'stc_api_calls',
     dock: 'stc_dock',
     collection: 'stc_collection',
+    guildReq: 'stc_guild_req',
+    statLog: 'stc_stat_log',
     allowGive: 'stc_allow_give',
     leader: 'stc_leader'
   };
@@ -444,6 +446,27 @@
   // Professions: each one has its own level (50 x level profession EXP per level, like everything else).
   // The Profession page shows the one you have selected: its name, "Level 25" and "1,118 EXP needed".
   const PROFESSIONS = ['Blacksmith', 'Warrior', 'Thief', 'Chef', 'Rogue', 'Guard', 'Defender', 'Banker'];
+  // Every profession: ranks unlock at these profession levels, and pay this much profession EXP per minute
+  const RANK_LEVELS = [1, 10, 25, 75, 200, 350, 500, 650, 850, 1050, 1250, 1500, 1750, 2000, 2300, 2600, 2900, 3200];
+  const RANK_EXP_PER_MIN = [15, 37, 66, 187, 245, 274, 316, 460, 532, 575, 647, 719, 791, 1006, 1079, 1150, 1222, 1438];
+
+  // Work needed from your level (with "left" EXP to go in it) up to a target level. Each level takes 50 x level EXP,
+  // and the EXP per minute goes up every time a new rank unlocks on the way. "measured" is your current rank's real rate.
+  function professionWork(level, left, target, measured) {
+    const rankAt = (lv) => RANK_LEVELS.filter((l) => l <= lv).length - 1;
+    const scale = measured ? measured / RANK_EXP_PER_MIN[rankAt(level)] : 1; // e.g. boosts
+    let cur = level, inLevel = left, exp = 0, minutes = 0;
+    while (cur < target) {
+      const r = rankAt(cur);
+      const end = Math.min(target, r + 1 < RANK_LEVELS.length ? RANK_LEVELS[r + 1] : Infinity);
+      const segment = inLevel + 25 * (end * (end - 1) - (cur + 1) * cur);
+      exp += segment;
+      minutes += segment / (RANK_EXP_PER_MIN[r] * scale);
+      cur = end;
+      inLevel = 50 * cur;
+    }
+    return { exp: exp, minutes: minutes, energy: Math.ceil(minutes / 10) };
+  }
 
   function readProfessionLevel(html, d) {
     const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -590,6 +613,7 @@
   }
 
   function savePlayer(p) {
+    logStats(p.statistics);
     setTimer('energy', { current: p.current_energy, max: p.max_energy });
     setTimer('qp', { current: p.current_quest_points, max: p.max_quest_points });
     setTimer('hp', { current: p.current_health, max: p.max_health });
@@ -1263,6 +1287,23 @@
     .stc-coll.new { background: var(--stc-accent-strong); color: #fff; }
 
     /* Sessions manager (same look as the settings window) */
+    #stc-guild { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
+    #stc-guild.open { display: flex; }
+    #stc-guild .stc-win { width: min(460px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
+      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
+    #stc-guild .stc-win-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
+    #stc-guild .stc-win-body { padding: 8px 16px 16px; }
+    .stc-req-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+    .stc-req-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--stc-muted); }
+    .stc-req-form select, .stc-req-item select, .stc-req-item input { background: var(--stc-card); color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 3px 6px; font: inherit; }
+    .stc-req-item input { width: 90px; }
+    #stc-guild a, .stc-guild-card a { color: var(--stc-accent); }
+    .stc-req-item { margin-top: 6px; }
+    .stc-pvp { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,.08); color: var(--stc-muted); }
+    .stc-pvp.good { background: rgba(34,197,94,.18); color: #22c55e; }
+    .stc-pvp.mid { background: rgba(245,158,11,.18); color: #f59e0b; }
+    .stc-pvp.bad { background: rgba(239,68,68,.18); color: #ef4444; }
     #stc-sessions { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
     #stc-sessions.open { display: flex; }
     #stc-sessions .stc-win { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
@@ -1770,6 +1811,7 @@
   }
 
   const sideTools = '<span class="stc-tools"><button class="stc-icon-btn" title="Chat (Alt+M)" data-dock-toggle>💬</button>' +
+    '<button class="stc-icon-btn" title="Guild requirements" data-guild-toggle>🛡</button>' +
     '<button class="stc-icon-btn" title="Open the SimpleMMO Hub with your numbers filled in" data-open-hub>📊</button>' +
     '<button class="stc-icon-btn" title="Settings (Alt+C)" data-open-settings>⚙</button></span>';
 
@@ -1928,8 +1970,8 @@
     return [...container.children].find((el) => /max-w-/.test(el.className) && isVisible(el)) || null;
   }
 
-  function makeCard(id, title, html) {
-    const card = document.createElement('div');
+  function makeCard(id, title, html, doc) {
+    const card = (doc || document).createElement('div');
     card.id = id;
     card.className = GAME.card + ' stc-card stc-ui';
     card.innerHTML = '<div class="stc-card-title"><span class="' + GAME.title + '">' + title + '</span>' +
@@ -1938,7 +1980,8 @@
   }
 
   // Which card goes on which page.
-  function cardForPage() {
+  function cardForPage(path) {
+    const PATH = path || location.pathname; // the page in this window, or the one in a popup
     const id = playerId();
     if (PATH === '/home' || PATH === '/') {
       return { title: 'Your progress', html: '<div class="stc-grid">' +
@@ -2020,6 +2063,8 @@
     if (settings.showPageCards && PATH.startsWith('/profession')) mountPlanner(document, mainColumn());
     if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
     if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
+    if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
+    if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
   }
 
   function walkCardHtml() {
@@ -2309,9 +2354,30 @@
   // ---------------------------------------------------------------------------
   // Page cards (Home, Battle, Collections, Diamond Market)
   // ---------------------------------------------------------------------------
+  // Cards on game pages shown in a popup
+  const popupCards = [];
+
+  function mountPopupCard(doc, column, path) {
+    const def = cardForPage(path);
+    if (!def || !column || column.querySelector('#stc-page-card')) return;
+    ensureStyle(doc);
+    const card = makeCard('stc-page-card', def.title, def.html, doc);
+    column.insertBefore(card, column.firstChild);
+    bindSettingInputs(card);
+    card.addEventListener('click', function (e) {
+      const scan = e.target.closest('[data-scan]');
+      if (scan) scanCollection((message) => { scan.textContent = message; });
+    });
+    popupCards.push(card);
+  }
+
   function renderPageCard(timers, now) {
-    if (!pageCard) return;
-    const part = (name) => pageCard.querySelector('[data-c="' + name + '"]');
+    for (let i = popupCards.length - 1; i >= 0; i--) if (!popupCards[i].isConnected) popupCards.splice(i, 1);
+    [pageCard].concat(popupCards).forEach((card) => { if (card) renderOneCard(card, timers, now); });
+  }
+
+  function renderOneCard(card, timers, now) {
+    const part = (name) => card.querySelector('[data-c="' + name + '"]');
     const data = load(KEY.data, {});
 
     if (part('player')) {
@@ -2440,6 +2506,7 @@
       applySideFold();
       return;
     }
+    if (t.closest('.stc-side [data-guild-toggle]')) { e.preventDefault(); e.stopPropagation(); toggleGuildReq(); return; }
     if (t.closest('.stc-side [data-dock-toggle]')) {
       e.preventDefault();
       e.stopPropagation();
@@ -2636,6 +2703,13 @@
       html = '<div class="stc-row"><span>' + escapeHtml(name) + ' level <b>' + fmt(p.level) + '</b></span><span>' +
         (minutes === null ? muted('open this page once to measure') :
           'next level in ' + workTime(minutes) + muted(' of work · ' + Math.ceil(minutes / 10) + ' EP · ' + fmt(left) + ' EXP')) + '</span></div>';
+      // The next locked rank
+      const nextRank = RANK_LEVELS.find((l) => l > p.level);
+      if (nextRank && rate) {
+        const work = professionWork(p.level, left, nextRank, rate);
+        html += '<div class="stc-row"><span>Next rank unlocks at level ' + fmt(nextRank) + '</span><span>' + workTime(work.minutes) +
+          muted(' of work · ' + fmt(work.energy) + ' EP · ' + short(work.exp) + ' EXP') + '</span></div>';
+      }
     }
     const known = PROFESSIONS.filter((x) => all[x]).length;
     if (known < PROFESSIONS.length) {
@@ -3031,6 +3105,265 @@
   }
 
   // ---------------------------------------------------------------------------
+  // PvP: chance to beat each generated opponent (Battle page, also in the Battle popup)
+  // ---------------------------------------------------------------------------
+  // Their stats come from the Public API (base + gear; a profession bonus isn't included, so it's an estimate).
+  // The fight is played out 1,000 times with the community damage formula:
+  // a hit does between Str - 11/9 x Def and Str - 9/11 x Def (at least 1 and 20), and lands 3.5 x Dex / Def of the time.
+  const battleDocs = [];
+  const opponentStats = {};   // id -> { str, def, dex, hp, at } or { error }
+  const opponentQueue = [];
+  let opponentBusy = false;
+
+  function watchBattle(doc) { if (!battleDocs.includes(doc)) battleDocs.push(doc); }
+
+  function hitRange(str, def) {
+    return { min: Math.max(1, Math.round(str - def * 11 / 9)), max: Math.max(20, Math.round(str - def * 9 / 11)) };
+  }
+
+  function winChance(me, them, runs) {
+    const mine = hitRange(me.str, them.def), theirs = hitRange(them.str, me.def);
+    const myHit = Math.min(1, them.def > 0 ? 3.5 * me.dex / them.def : 1);
+    const theirHit = Math.min(1, me.def > 0 ? 3.5 * them.dex / me.def : 1);
+    let wins = 0;
+    for (let i = 0; i < runs; i++) {
+      let a = me.hp, b = them.hp;
+      for (let round = 0; round < 400; round++) {
+        if (Math.random() < myHit) b -= mine.min + Math.random() * (mine.max - mine.min);
+        if (b <= 0) { wins++; break; }
+        if (Math.random() < theirHit) a -= theirs.min + Math.random() * (theirs.max - theirs.min);
+        if (a <= 0) break;
+      }
+    }
+    return { chance: wins / runs, myHit: myHit, theirHit: theirHit };
+  }
+
+  function myFightStats() {
+    const p = load(KEY.data, {}).player || {};
+    const t = p.stats && p.stats.total;
+    const hp = load(KEY.timers, {}).hp;
+    return t && hp ? { str: t.str, def: t.def, dex: t.dex, hp: hp.current } : null;
+  }
+
+  async function lookUpOpponents() {
+    if (opponentBusy || !opponentQueue.length) return;
+    opponentBusy = true;
+    const id = opponentQueue.shift();
+    try {
+      const result = await apiPost('/v1/player/info/' + id);
+      if (result.data) {
+        const d = result.data;
+        opponentStats[id] = { str: d.str + (d.bonus_str || 0), def: d.def + (d.bonus_def || 0), dex: d.dex + (d.bonus_dex || 0), hp: d.hp, maxHp: d.max_hp, at: Date.now() };
+      } else if (result.status === 'budget') opponentQueue.unshift(id); // try again in a moment
+      else opponentStats[id] = { error: true, at: Date.now() };
+    } catch (e) { opponentStats[id] = { error: true, at: Date.now() }; }
+    opponentBusy = false;
+  }
+
+  function renderOpponentChances() {
+    const me = myFightStats();
+    for (let i = battleDocs.length - 1; i >= 0; i--) {
+      const doc = battleDocs[i];
+      if (!doc.defaultView) { battleDocs.splice(i, 1); continue; }
+      // Each opponent card is rendered from the game's "opponent in opponents" list
+      doc.querySelectorAll('template[x-for*="in opponents"]').forEach(function (template) {
+        [...template.parentElement.children].forEach(function (card) {
+          const scope = card !== template && card._x_dataStack && card._x_dataStack[0];
+          const opp = scope && scope.opponent;
+          if (!opp || !opp.id) return;
+          const badge = card.querySelector('.stc-pvp');
+          if (badge && badge.dataset.opponent === String(opp.id)) return;
+          if (badge) badge.remove(); // the list was regenerated
+          const levelLine = [...card.querySelectorAll('div, span')].find((el) => !el.children.length && /^Level\s/.test(el.textContent.trim()));
+          const el = doc.createElement('span');
+          el.className = 'stc-pvp stc-ui';
+          el.dataset.opponent = opp.id;
+          (levelLine ? levelLine.parentElement : card).appendChild(el);
+        });
+      });
+      doc.querySelectorAll('.stc-pvp').forEach(function (badge) {
+        const id = badge.dataset.opponent;
+        const s = opponentStats[id];
+        if (!settings.apiKey) { badge.textContent = 'win %: needs API key'; return; }
+        if (!s || Date.now() - s.at > 15 * MIN) {
+          if (!opponentQueue.includes(id) && !(s && s.error && Date.now() - s.at < MIN)) opponentQueue.push(id);
+          if (!s) { badge.textContent = 'checking…'; return; }
+        }
+        if (s.error) { badge.textContent = 'win %: unknown'; return; }
+        if (!me) { badge.textContent = 'win %: your stats not read yet'; return; }
+        if (badge.dataset.sig !== JSON.stringify([s, me])) {
+          badge.dataset.sig = JSON.stringify([s, me]);
+          const r = winChance(me, s, 1000);
+          const pct = Math.round(r.chance * 100);
+          badge.textContent = pct + '% win';
+          badge.className = 'stc-pvp stc-ui ' + (pct >= 70 ? 'good' : pct >= 40 ? 'mid' : 'bad');
+          badge.title = 'Estimate. Their Str ' + fmt(s.str) + ', Def ' + fmt(s.def) + ', Dex ' + fmt(s.dex) + ', HP ' + fmt(s.hp) +
+            '. You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%.';
+        }
+      });
+    }
+    lookUpOpponents();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Guild requirements: NPC kills, player kills or steps per day / week / month
+  // ---------------------------------------------------------------------------
+  // Your totals come from the API (statistics) and are noted every 30 minutes, so the start of each period is known.
+  const REQ_TYPES = { npc: 'NPC kills', pvp: 'Player kills', steps: 'Steps' };
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  function guildReq() {
+    return Object.assign({ period: 'weekly', day: 1, hour: 0, mode: 'any', items: [] }, load(KEY.guildReq, {}));
+  }
+
+  // Note your totals (at most every 30 minutes; kept for 70 days)
+  function logStats(statistics) {
+    if (!statistics) return;
+    update(KEY.statLog, (log) => {
+      const last = log[log.length - 1];
+      const entry = { t: Date.now(), steps: statistics.steps, npc: statistics.npc_kills, pvp: statistics.user_kills };
+      if (last && Date.now() - last.t < 30 * MIN) { log[log.length - 1] = Object.assign(entry, { t: last.t, latest: Date.now() }); return; }
+      log.push(entry);
+      while (log.length && Date.now() - log[0].t > 70 * 86400000) log.shift();
+    }, []);
+  }
+
+  // Start and end of the current period, in your own time zone
+  function reqPeriod(req) {
+    const now = new Date();
+    const start = new Date(now);
+    start.setMinutes(0, 0, 0);
+    start.setHours(req.hour);
+    if (req.period === 'daily') { if (start > now) start.setDate(start.getDate() - 1); }
+    else if (req.period === 'monthly') { start.setDate(1); if (start > now) start.setMonth(start.getMonth() - 1); }
+    else { start.setDate(start.getDate() - ((start.getDay() - req.day + 7) % 7)); if (start > now) start.setDate(start.getDate() - 7); }
+    const end = new Date(start);
+    if (req.period === 'daily') end.setDate(end.getDate() + 1);
+    else if (req.period === 'monthly') end.setMonth(end.getMonth() + 1);
+    else end.setDate(end.getDate() + 7);
+    return { start: start.getTime(), end: end.getTime() };
+  }
+
+  function reqProgress() {
+    const req = guildReq();
+    const period = reqPeriod(req);
+    const log = load(KEY.statLog, []);
+    const now = log[log.length - 1];
+    const before = log.filter((e) => (e.latest || e.t) <= period.start).pop();
+    const base = before || log.find((e) => e.t >= period.start);
+    const items = req.items.map((item) => {
+      const done = now && base ? Math.max(0, now[item.type] - base[item.type]) : null;
+      return Object.assign({}, item, { done: done, met: done !== null && done >= item.target });
+    });
+    const met = items.length ? (req.mode === 'all' ? items.every((i) => i.met) : items.some((i) => i.met)) : false;
+    const gap = before ? period.start - (before.latest || before.t) : 0;
+    return { req: req, period: period, items: items, met: met, partial: !before && !!base, since: base ? base.t : null, ready: !!now,
+      early: gap > 2 * 3600000 ? (before.latest || before.t) : null };
+  }
+
+  function guildReqHtml() {
+    const p = reqProgress();
+    const req = p.req;
+    const when = (t) => new Date(t).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    let html = '';
+    if (!settings.apiKey) html += '<div class="stc-note stc-warn">Progress needs your API key (Settings).</div>';
+    if (!req.items.length) html += muted('No requirements set yet. Add them below.');
+    else {
+      html += '<div class="stc-row"><span><b>' + (p.met ? ready('Requirements met') : 'Not met yet') + '</b></span><span class="stc-muted">' +
+        (req.mode === 'all' ? 'all of these' : 'any one of these') + ' · ends ' + when(p.period.end) + '</span></div>';
+      p.items.forEach(function (i) {
+        const pct = i.done === null ? 0 : Math.min(100, i.done / i.target * 100);
+        html += '<div class="stc-row" style="margin-top:6px"><span>' + REQ_TYPES[i.type] + '</span><span>' +
+          (i.done === null ? muted('not measured yet') : (i.met ? ready(fmt(i.done)) : fmt(i.done)) + ' / ' + fmt(i.target)) + '</span></div>' +
+          '<div class="stc-bar"><div style="width:' + pct.toFixed(1) + '%"></div></div>';
+      });
+      if (p.early) html += '<div class="stc-note">Your totals were last noted ' + when(p.early) + ', before this period started, so this may include some earlier progress.</div>';
+      if (p.partial) html += '<div class="stc-note">Counting since ' + when(p.since) + ' (when the Companion first saw your totals this period), so earlier progress is missing.</div>';
+    }
+    // Editing
+    html += '<div class="stc-section-title" style="margin-top:14px">Requirements</div>' +
+      '<div class="stc-req-form">' +
+        '<label>Period <select data-req="period"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>' +
+        '<label data-req-dayfield>Starts on <select data-req="day">' + DAYS.map((d, i) => '<option value="' + i + '">' + d + '</option>').join('') + '</select></label>' +
+        '<label>at <select data-req="hour">' + Array.from({ length: 24 }, (_, h) => '<option value="' + h + '">' + String(h).padStart(2, '0') + ':00</option>').join('') + '</select></label>' +
+        '<label>Need <select data-req="mode"><option value="any">any one of them</option><option value="all">all of them</option></select></label>' +
+      '</div>' +
+      req.items.map((i, n) => '<div class="stc-row stc-req-item"><span><select data-req-type="' + n + '">' +
+        Object.entries(REQ_TYPES).map(([k, v]) => '<option value="' + k + '"' + (k === i.type ? ' selected' : '') + '>' + v + '</option>').join('') +
+        '</select> <input type="number" min="1" value="' + i.target + '" data-req-target="' + n + '"></span>' +
+        '<button class="stc-icon-btn" data-req-remove="' + n + '" title="Remove">×</button></div>').join('') +
+      '<div class="stc-btns"><button class="' + GAME.button2 + '" data-req-add>Add a requirement</button></div>' +
+      '<div class="stc-note">Missing something your guild asks for? <a href="https://github.com/Reacien/Userscripts/issues/new?title=' +
+        encodeURIComponent('[Guild requirement] ') + '&body=' + encodeURIComponent('What does your guild ask for (and per day/week/month)?') + '" target="_blank" rel="noopener">Request a new requirement type</a>.</div>';
+    return html;
+  }
+
+  // One renderer for the guild page card and the 🛡 popup
+  function renderGuildReq(container) {
+    if (container.contains(container.ownerDocument.activeElement) && container.ownerDocument.activeElement.matches('input, select')) return;
+    setHtml(container, guildReqHtml());
+    const req = guildReq();
+    ['period', 'day', 'hour', 'mode'].forEach((k) => { const el = container.querySelector('[data-req="' + k + '"]'); if (el) el.value = String(req[k]); });
+    const dayField = container.querySelector('[data-req-dayfield]');
+    if (dayField) dayField.style.display = req.period === 'weekly' ? '' : 'none';
+  }
+
+  function bindGuildReq(container) {
+    if (container.dataset.reqBound) return;
+    container.dataset.reqBound = '1';
+    const change = (fn) => { update(KEY.guildReq, (r) => { Object.assign(r, Object.assign(guildReq(), r)); fn(r); }); container.ownerDocument.activeElement.blur && container.ownerDocument.activeElement.blur(); renderGuildReq(container); };
+    container.addEventListener('change', function (e) {
+      const t = e.target;
+      if (t.dataset.req) change((r) => { r[t.dataset.req] = ['day', 'hour'].includes(t.dataset.req) ? parseInt(t.value, 10) : t.value; });
+      if (t.dataset.reqType) change((r) => { r.items[+t.dataset.reqType].type = t.value; });
+      if (t.dataset.reqTarget) change((r) => { r.items[+t.dataset.reqTarget].target = Math.max(1, parseInt(t.value, 10) || 1); });
+    });
+    container.addEventListener('click', function (e) {
+      if (e.target.closest('[data-req-add]')) change((r) => { r.items.push({ type: 'npc', target: 100 }); });
+      const remove = e.target.closest('[data-req-remove]');
+      if (remove) change((r) => { r.items.splice(+remove.dataset.reqRemove, 1); });
+    });
+  }
+
+  // The 🛡 popup from the Companion block
+  const guildWin = document.createElement('div');
+  guildWin.id = 'stc-guild';
+  guildWin.innerHTML = '<div class="stc-win"><div class="stc-win-head"><span>Guild requirements</span>' +
+    '<button class="stc-icon-btn" data-close-guild title="Close (Esc)" style="font-size:18px">×</button></div><div class="stc-win-body" data-guild-body></div></div>';
+  document.body.appendChild(guildWin);
+  const guildBody = guildWin.querySelector('[data-guild-body]');
+  bindGuildReq(guildBody);
+  guildWin.addEventListener('click', function (e) {
+    if (e.target === guildWin || e.target.closest('[data-close-guild]')) guildWin.classList.remove('open');
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') guildWin.classList.remove('open'); });
+  function toggleGuildReq() {
+    guildWin.classList.toggle('open');
+    if (guildWin.classList.contains('open')) renderGuildReq(guildBody);
+  }
+
+  const guildCards = [];
+  function mountGuildCard(doc, column) {
+    if (!column || column.querySelector('.stc-guild-card')) return;
+    ensureStyle(doc);
+    const card = makeCard('stc-guild-card', 'Your guild requirements', '<div data-guild-card></div>', doc);
+    card.classList.add('stc-guild-card');
+    card.style.marginBottom = '16px';
+    column.insertBefore(card, column.firstChild);
+    const body = card.querySelector('[data-guild-card]');
+    bindGuildReq(body);
+    guildCards.push(body);
+  }
+
+  function renderGuildCards() {
+    for (let i = guildCards.length - 1; i >= 0; i--) {
+      if (!guildCards[i].isConnected) guildCards.splice(i, 1);
+      else renderGuildReq(guildCards[i]);
+    }
+    if (guildWin.classList.contains('open')) renderGuildReq(guildBody);
+  }
+
+  // ---------------------------------------------------------------------------
   // Everything that updates several times a second
   // ---------------------------------------------------------------------------
   let questTick = 0;
@@ -3048,7 +3381,8 @@
       if (!planners[i].el.isConnected) planners.splice(i, 1);
       else renderPlanner(planners[i]);
     }
-    if (questTick % 2 === 0) renderCraftHelpers();
+    if (questTick % 2 === 0) { renderCraftHelpers(); renderOpponentChances(); }
+    if (questTick % 8 === 0) renderGuildCards();
     if (++questTick % 4 === 0) {
       for (let i = questHelpers.length - 1; i >= 0; i--) {
         if (!questHelpers[i].el.isConnected) questHelpers.splice(i, 1);
@@ -3464,6 +3798,16 @@
           else mountQuestHelper(doc, column);
         }
         if (where.pathname.startsWith('/crafting') && settings.showPageCards) watchCrafting(doc);
+        if (where.pathname.startsWith('/battle') && settings.showPageCards) watchBattle(doc);
+        if (where.pathname.startsWith('/guilds/menu') && settings.showPageCards) {
+          const gc = doc.querySelector('.web-app-container');
+          mountGuildCard(doc, gc && [...gc.children].find((c) => /max-w-/.test(c.className) && c.textContent.trim()));
+        }
+        if (settings.showPageCards) {
+          const container = doc.querySelector('.web-app-container');
+          const column = container && [...container.children].find((c) => /max-w-/.test(c.className) && c.textContent.trim());
+          mountPopupCard(doc, column, where.pathname);
+        }
         // Show the page's own title, and keep "Open full page" pointing at where you are now.
         const own = (doc.title || '').replace(/\s*\|\s*SimpleMMO\s*$/i, '').trim();
         if (own && !/^SimpleMMO$/i.test(own)) $('stc-page-title').textContent = own;
