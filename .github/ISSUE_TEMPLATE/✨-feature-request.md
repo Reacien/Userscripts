@@ -1,22 +1,46 @@
 ---
-name: "✨ Feature Request"
-about: Use this if you have an idea for a new feature or upgrade.
-title: "[FEATURE] <describe feature>"
-labels: "✨ Feature Request, \U0001F41E Script Bug"
+name: "Feature Request"
+about: Suggest an improvement or new feature for an existing userscript.
+title: "[FEATURE] "
+labels: "✨ Feature Request"
 assignees: Reacien
-
 ---
 
-## ✨ Feature Request
+<!--
+Before submitting:
+- Check whether someone has already suggested this feature.
+- Check the script's README to see whether it already exists.
 
-**Script name:**  
-> If existing, which userscript? Or type "New script."
+For a completely new userscript, use the Script Idea template instead.
 
-**What feature/behavior would you like?**  
-> Describe your suggestion. Be as detailed as possible.
+Never share API keys, passwords, cookies or other sensitive information.
+-->
 
-**Why is this useful?**  
-> Who would benefit? What problem does this solve?
+## Affected script
 
-**Additional context:**  
-> Screenshots, mockups, or further thoughts.
+- Script name:
+
+## What problem would this solve?
+
+Describe what is difficult, missing or inconvenient in your current workflow.
+
+## Suggested improvement
+
+What would you like the script to do?
+A concrete example of how you would use it helps.
+
+## Relevant page
+
+If this applies to a particular website page, include its name or URL.
+
+## Alternatives considered
+
+Optional: describe any existing settings, workarounds or other approaches
+you have tried.
+
+## Screenshots or additional context
+
+Optional: add screenshots, a mockup or an example.
+
+For SMMO Travel Companion, suggestions should support manual gameplay,
+not automate walking, fighting, quests or other game actions.
