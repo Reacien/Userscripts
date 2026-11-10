@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
 
           for script in $(find . -type f -name '*.user.js' -not -path './.git/*' | sed 's|^\./||' | sort); do
-            date="$(git log -1 --format=%as -- "$script")"
+            date="$(LC_ALL=C git log -1 --format=%cd --date=format-local:'%d %b %Y' -- "$script")"
             marker_start="<!-- LAST_UPDATED:$script -->"
             marker_end="<!-- /LAST_UPDATED -->"
 
