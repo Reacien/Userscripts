@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      0.40.0
+// @version      1.0.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -15,6 +15,1640 @@
 // @updateURL    https://raw.githubusercontent.com/Reacien/Userscripts/main/SimpleMMO/smmo-travel-companion.user.js
 // @downloadURL  https://raw.githubusercontent.com/Reacien/Userscripts/main/SimpleMMO/smmo-travel-companion.user.js
 // ==/UserScript==
+
+(function () {
+  'use strict';
+
+// ===========================================================================
+// Styles — extension manifest order
+// ===========================================================================
+
+const style = document.createElement('style');
+style.textContent = `/* ======================================================================
+   1. styles.css
+   ====================================================================== */
+
+    :root {
+      --stc-card: #111111; --stc-border: #262626; --stc-text: #e5e5e5; --stc-muted: #8a8a8a;
+      --stc-accent: #6366f1; --stc-accent-strong: #4f46e5; --stc-ready: #22c55e; --stc-warn: #f59e0b; --stc-bad: #ef4444;
+      --stc-track: rgba(115,115,115,.25);
+    }
+    /* The game switches to light mode by removing class="dark" from <html>. */
+    html:not(.dark) { --stc-card: #ffffff; --stc-border: #e5e5e5; --stc-text: #262626; --stc-muted: #737373; }
+    html:not(.dark) .stc-strip b { color: #111; }
+    .stc-ui, #stc-settings, #stc-toast, #stc-dock, #stc-notes, #stc-page-pop { font-family: Inter, sans-serif; }
+    .stc-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
+    .stc-row > span:last-child { font-variant-numeric: tabular-nums; text-align: right; }
+    .stc-muted { color: var(--stc-muted); }
+    .stc-ready { color: var(--stc-ready); font-weight: 600; }
+    .stc-warn { color: var(--stc-warn); }
+    .stc-row a, .stc-side a, .stc-card a { color: inherit; text-decoration: none; }
+    .stc-row a:hover, .stc-side a:hover, .stc-card a:hover { text-decoration: underline; }
+    .stc-note { margin-top: 6px; font-size: 11px; color: var(--stc-muted); }
+    .stc-bar { height: 6px; border-radius: 3px; background: var(--stc-track); overflow: hidden; margin: 4px 0; }
+    .stc-bar div { height: 100%; width: 0; background: var(--stc-accent); border-radius: 3px; }
+    .stc-icon-btn { background: none; border: none; color: var(--stc-muted); cursor: pointer; padding: 0 2px; font-size: 12px; line-height: 1; }
+    .stc-icon-btn:hover { color: var(--stc-text); }
+    .stc-unread { margin-left: 4px; padding: 0 6px; border-radius: 9999px; background: var(--stc-bad); color: #fff; font-size: 10px; font-weight: 700; }
+    .stc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #737373; flex: none; }
+    .stc-dot.ready { background: var(--stc-ready); box-shadow: 0 0 6px var(--stc-ready); }
+    .stc-dot.wait { background: var(--stc-warn); }
+    .stc-dot.blocked { background: var(--stc-bad); }
+
+    /* Companion block in the game's left menu */
+    .stc-side { margin: 0 0 18px; padding: 0 4px; font-size: 12px; line-height: 1.5; color: var(--stc-text); }
+    .stc-side-head { display: flex; align-items: center; justify-content: space-between; }
+    .stc-side-head .stc-tools { display: flex; gap: 6px; align-items: center; }
+    .stc-side-box { margin: 0 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--stc-border); background: rgba(255,255,255,.02); }
+    .stc-side .stc-row { padding: 1px 0; }
+    .stc-side .stc-name { display: inline-flex; align-items: center; gap: 4px; }
+    .stc-side .stc-bell { opacity: 0; transition: opacity .15s; }
+    .stc-side .stc-row:hover .stc-bell, .stc-side .stc-bell.off { opacity: .8; }
+    .stc-side .stc-new > span:first-child::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px;
+      border-radius: 50%; background: var(--stc-accent); vertical-align: middle; }
+    .stc-side-new { margin: 0; padding: 0 1.5rem 0 1rem; font-size: 13px; flex: none; }
+    .stc-side-new .stc-side-box { max-height: 55vh; overflow-y: auto; }
+    .stc-rows-pick { margin: 6px 0 4px; }
+    .stc-rows-pick summary { cursor: pointer; padding: 4px 0; }
+    .stc-rows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin-top: 6px; }
+    .stc-rows-grid label { display: flex !important; align-items: center; gap: 6px; justify-content: flex-start !important; }
+    .stc-side-new .stc-side-head { cursor: default; }
+    .stc-side-new .stc-side-fold { cursor: pointer; flex: 1; }
+    .stc-side-new .stc-side-chevron { cursor: pointer; display: inline-flex; transition: transform .15s; }
+    .stc-side-new .stc-side-chevron svg { width: 16px; height: 16px; }
+    .stc-side-new .stc-side-box { margin: 8px 0 0; }
+    .stc-side .stc-sep { height: 1px; background: var(--stc-border); margin: 6px 0; }
+    .stc-badge { min-width: 16px; padding: 0 5px; border-radius: 9999px; background: var(--stc-accent-strong); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+    .stc-when { cursor: pointer; }
+    .stc-when:hover { text-decoration: underline dotted; }
+    .stc-planner select, .stc-planner input[type=time] { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--stc-border);
+      background: #0a0a0a; color: var(--stc-text); font: inherit; font-size: 13px; }
+    html:not(.dark) .stc-planner select, html:not(.dark) .stc-planner input[type=time] { background: #fff; }
+    .stc-plan-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--stc-border); align-items: baseline; }
+    .stc-plan-row:first-child { border-top: none; }
+    .stc-plan-row b { font-size: 15px; }
+    .stc-plan-row { grid-template-columns: 1.1fr 1fr 1fr 1fr auto; }
+    .stc-plan-row[data-plan-pick] { cursor: pointer; border-radius: 6px; padding-left: 6px; padding-right: 6px; }
+    .stc-plan-row[data-plan-pick]:hover { background: var(--stc-hover, rgba(99,102,241,.08)); }
+    .stc-plan-off { opacity: .6; }
+    .stc-plan-use { color: #6366f1; font-size: 12px; font-weight: 600; align-self: center; }
+    .stc-plan-toggle { width: 100%; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; text-align: left; }
+    .stc-quest-top { display: block; width: 100%; text-align: left; background: none; border: 1px solid var(--stc-border); border-radius: 8px; padding: 10px; cursor: pointer; color: inherit; font: inherit; }
+    .stc-quest-top:hover { background: var(--stc-hover, rgba(99,102,241,.08)); }
+    .stc-quest-top .stc-bar { display: block; margin: 6px 0; }
+    .stc-quest-top .stc-bar span { background: var(--stc-accent); border-radius: 3px; }
+    .stc-craft { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--stc-accent-strong); border-radius: 8px; font-size: 12px; color: var(--stc-text); background: rgba(99,102,241,.06); }
+    .stc-craft-title { font-size: 11px; font-weight: 600; color: var(--stc-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .stc-craft .stc-row { padding: 2px 0; gap: 8px; }
+    .stc-craft input[type=number] { width: 52px; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 4px; padding: 1px 4px; font: inherit; }
+    .stc-craft-fill { margin-left: 6px; padding: 1px 6px !important; border: 1px solid var(--stc-border) !important; border-radius: 4px; font-size: 11px !important; }
+    .stc-seg { display: inline-flex; border: 1px solid var(--stc-border); border-radius: 6px; overflow: hidden; }
+    .stc-seg button { background: none; border: 0; padding: 4px 10px; font: inherit; font-size: 12px; color: var(--stc-muted); cursor: pointer; }
+    .stc-seg button + button { border-left: 1px solid var(--stc-border); }
+    .stc-seg button.on { background: var(--stc-accent); color: #fff; }
+    .stc-flash { outline: 3px solid #6366f1 !important; outline-offset: 2px; border-radius: 8px; transition: outline-color .3s; }
+    .stc-points { cursor: pointer; border-bottom: 1px dashed transparent; }
+    .stc-points:hover { border-bottom-color: var(--stc-muted); }
+    .stc-target-edit { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+    .stc-target-edit input { width: 52px; padding: 1px 4px; font-size: 12px; border-radius: 4px; border: 1px solid var(--stc-border); background: #0a0a0a; color: var(--stc-text); }
+    .stc-target-edit button { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--stc-border); background: #1f1f1f; color: var(--stc-text); cursor: pointer; }
+
+    /* Cards placed on the game's pages */
+    .stc-card { margin-top: 12px; font-size: 13px; line-height: 1.5; }
+    #stc-page-card { margin: 0 0 16px; }
+    .stc-card-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .stc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 24px; }
+    .stc-section-title { margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: #737373; }
+    .stc-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .stc-card button[disabled] { opacity: .45; cursor: default; }
+    .stc-rarity-chip { display: inline-block; padding: 0 8px; margin: 2px 4px 2px 0; border-radius: 9999px; background: var(--stc-track); font-size: 12px; }
+
+    /* Strip on the Travel page, with the session details dropdown */
+    /* No stacking level of its own, so the game's menus (level 20) open over the bar. The dropdown sits at 15:
+       above the travel scene (level 10), below the game's menus. */
+    .stc-strip-wrap { position: relative; }
+    .stc-strip .stc-strip-items { display: contents; }
+    .stc-details-btn { margin-left: auto; padding: 2px 10px; border-radius: 6px; border: 1px solid var(--stc-border);
+      background: transparent; color: var(--stc-text); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+    .stc-details-btn:hover { background: var(--stc-track); }
+    .stc-strip-wrap.open .stc-details-btn { border-color: var(--stc-accent); }
+    .stc-dropdown { display: none; position: absolute; z-index: 15; right: 0; top: calc(100% + 6px); width: 300px; max-height: 72vh; overflow: auto;
+      margin: 0; font-size: 12px; line-height: 1.45; box-shadow: 0 16px 40px rgba(0,0,0,.55); }
+    .stc-dropdown .stc-btns { margin-top: 8px; }
+    .stc-dropdown .stc-btns button { font-size: 12px; padding: 6px 10px; }
+    .stc-strip-wrap.open .stc-dropdown { display: block; }
+    .stc-grid-1 { grid-template-columns: 1fr; gap: 14px; }
+    /* Strip on the Travel page */
+    .stc-strip { margin: 8px 0 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--stc-border); background: var(--stc-card);
+      color: var(--stc-text); font-size: 13px; line-height: 1.5; display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
+    .stc-strip b { font-weight: 600; color: #fff; }
+    .stc-strip .stc-bar { width: 120px; display: inline-block; vertical-align: middle; margin: 0 6px; }
+    .stc-chip { display: inline-block; padding: 0 6px; margin: 1px 2px 1px 0; border-radius: 9999px; background: var(--stc-track); font-size: 11px; }
+
+    /* Collection badges on item rows */
+    .stc-coll { margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: 10px; font-weight: 700; vertical-align: middle; }
+    .stc-blocked { opacity: .35 !important; pointer-events: none !important; cursor: not-allowed !important; filter: grayscale(1); }
+    .stc-give-note { display: inline-block; margin-left: 6px; font-size: 11px; color: var(--stc-warn); white-space: nowrap; }
+    .stc-give-note a { color: inherit; text-decoration: underline; }
+    .stc-coll.new { background: var(--stc-accent-strong); color: #fff; }
+
+    /* Sessions manager (same look as the settings window) */
+    #stc-guild { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
+    #stc-guild.open { display: flex; }
+    #stc-guild .stc-win { width: min(460px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
+      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
+    #stc-guild .stc-win-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
+    #stc-guild .stc-win-body { padding: 8px 16px 16px; }
+    .stc-req-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+    .stc-req-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--stc-muted); }
+    .stc-req-form select, .stc-req-item select, .stc-req-item input { background: var(--stc-card); color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 3px 6px; font: inherit; }
+    .stc-req-item input { width: 90px; }
+    #stc-guild a, .stc-guild-card a { color: var(--stc-accent); }
+    .stc-req-item { margin-top: 6px; }
+    .stc-pvp { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,.08); color: var(--stc-muted); }
+    .stc-pvp.good { background: rgba(34,197,94,.18); color: #22c55e; }
+    .stc-pvp.mid { background: rgba(245,158,11,.18); color: #f59e0b; }
+    .stc-pvp.bad { background: rgba(239,68,68,.18); color: #ef4444; }
+    #stc-sessions { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
+    #stc-sessions.open { display: flex; }
+    #stc-sessions .stc-win { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
+      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
+    #stc-sessions .stc-win-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
+    #stc-sessions .stc-win-body { padding: 8px 16px 16px; }
+    .stc-sess { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--stc-border); align-items: center; }
+    .stc-sess-tools { display: flex; gap: 6px; align-items: center; }
+    .stc-sess input[type=number] { width: 70px !important; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 3px 6px; }
+    .stc-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; margin: 8px 0; border: 1px solid var(--stc-border); border-radius: 8px; }
+    .stc-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--stc-muted); }
+    .stc-form input, #stc-sessions textarea { width: 100%; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 5px 7px; font: inherit; }
+    #stc-sessions textarea { min-height: 70px; resize: vertical; }
+
+    /* Settings window (styled like the game's own windows) */
+    #stc-settings { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center;
+      background: rgba(0,0,0,.6); padding: 6vh 12px; }
+    #stc-settings.open { display: flex; }
+    #stc-settings-box { width: min(560px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
+      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
+    #stc-settings-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
+    #stc-settings-body { padding: 4px 16px 16px; }
+    #stc-settings .stc-section-title { margin: 16px 0 6px; }
+    #stc-settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; }
+    #stc-settings input[type=number] { width: 96px; }
+    #stc-settings input[type=password] { width: 100%; }
+    #stc-settings .stc-prof-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    #stc-settings .stc-prof-grid input { width: 80px; }
+    .stc-ui input[type=number], .stc-ui input[type=password], #stc-settings input[type=number], #stc-settings input[type=password] {
+      padding: 4px 8px; border-radius: 6px; border: 1px solid var(--stc-border); background: #0a0a0a; color: var(--stc-text); font-size: 13px; }
+    /* The game restyles checkboxes and sliders; use the browser's own inside our UI. */
+    #stc-settings input[type=checkbox], .stc-ui input[type=checkbox] {
+      appearance: auto; -webkit-appearance: auto; width: 16px; height: 16px; flex: none; accent-color: var(--stc-accent); cursor: pointer; }
+    #stc-settings input[type=range] { appearance: none; -webkit-appearance: none; width: 160px; height: 16px; background: transparent; border: none; cursor: pointer; }
+    #stc-settings input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--stc-track); }
+    #stc-settings input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--stc-accent); }
+    #stc-settings input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--stc-track); }
+    #stc-settings input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--stc-accent); border: none; }
+
+    /* Small settings button, only on narrow screens where the game hides its left menu */
+    #stc-mobile-btn { position: fixed; left: 12px; bottom: 12px; z-index: 99994; width: 40px; height: 40px; border-radius: 9999px;
+      border: 1px solid var(--stc-border); background: var(--stc-card); color: var(--stc-text); font-size: 18px; cursor: pointer; display: none; }
+
+    /* Toasts */
+    #stc-toast { position: fixed; z-index: 100000; left: 50%; top: 76px; transform: translateX(-50%); max-width: 440px; padding: 10px 16px;
+      border-radius: 8px; background: var(--stc-card); color: var(--stc-text); border: 1px solid var(--stc-accent-strong);
+      box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 13px; display: none; }
+
+    /* Chat popup: Global and Private */
+    #stc-dock { position: fixed; top: 60px; right: 120px; width: 420px; height: 70vh; max-height: 680px; z-index: 99998;
+      display: none; flex-direction: column; background: var(--stc-card); border: 1px solid var(--stc-border); border-radius: 8px;
+      box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; font-size: 13px; color: var(--stc-text); }
+    #stc-dock.open { display: flex; }
+    #stc-dock-head { display: flex; align-items: stretch; height: 40px; flex: none; border-bottom: 1px solid var(--stc-border); }
+    #stc-dock-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font: inherit; font-weight: 500; padding: 0 14px; }
+    #stc-dock-head button:hover { color: var(--stc-text); }
+    #stc-dock-head button.active { color: var(--stc-text); box-shadow: inset 0 -2px 0 var(--stc-accent); }
+    #stc-dock-head .stc-dock-close { margin-left: auto; font-size: 16px; }
+    #stc-dock-head #stc-dock-back { color: #a5b4fc; padding: 0 10px; border-right: 1px solid var(--stc-border); }
+    #stc-dock-body { position: relative; flex: 1; }
+    #stc-dock-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
+    #stc-dock-hint { padding: 16px; color: var(--stc-muted); }
+
+    /* Game pages in a large popup over the Travel page */
+    #stc-page-pop { position: fixed; inset: 0; z-index: 99990; display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.6); font-size: 13px; color: var(--stc-text); }
+    #stc-page-pop.open { display: flex; }
+    #stc-page-box { width: min(1100px, 92vw); height: 86vh; display: flex; flex-direction: column; background: var(--stc-card);
+      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; }
+    #stc-page-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--stc-border); flex: none; }
+    #stc-page-title { font-weight: 600; flex: 1; }
+    #stc-page-head a { color: #a5b4fc; font-size: 12px; text-decoration: none; }
+    #stc-page-head a:hover { text-decoration: underline; }
+    #stc-page-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 18px; }
+    #stc-page-body { position: relative; flex: 1; }
+    #stc-page-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
+
+    /* Notifications popup under the bell */
+    #stc-notes { position: fixed; top: 60px; right: 80px; width: 420px; height: 70vh; max-height: 640px; z-index: 99998;
+      display: none; flex-direction: column; background: var(--stc-card); border: 1px solid var(--stc-border); border-radius: 8px;
+      box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; font-size: 13px; color: var(--stc-text); }
+    #stc-notes.open { display: flex; }
+    #stc-notes-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px;
+      border-bottom: 1px solid var(--stc-border); font-weight: 600; flex: none; }
+    #stc-notes-head a { color: #a5b4fc; font-weight: 400; font-size: 12px; margin-right: 10px; text-decoration: none; }
+    #stc-notes-head a:hover { text-decoration: underline; }
+    #stc-notes-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 16px; }
+    #stc-notes-body { position: relative; flex: 1; }
+    #stc-notes-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
+  
+
+/* ======================================================================
+   2. sidebar.css
+   ====================================================================== */
+/* Extension-owned sidebar layer. Do not modify generated styles.css. */
+.stc-side {
+  --stc-side-fg: #d4d4d4;
+  --stc-side-muted: #a3a3a3;
+  --stc-side-line: rgba(255,255,255,.09);
+  --stc-side-hover: rgba(255,255,255,.06);
+  --stc-side-ready: #4ade80;
+  color: var(--stc-side-fg);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+html:not(.dark) .stc-side {
+  --stc-side-fg: #404040;
+  --stc-side-muted: #666666;
+  --stc-side-line: rgba(0,0,0,.09);
+  --stc-side-hover: rgba(0,0,0,.045);
+  --stc-side-ready: #15803d;
+}
+.stc-side .stc-side-box {
+  margin: 8px 0 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.stc-side .stc-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 0;
+  color: var(--stc-side-muted);
+}
+.stc-side .stc-tools { display: inline-flex; align-items: center; gap: 0; }
+.stc-side .stc-tools .stc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 28px;
+  padding: 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--stc-side-muted);
+  cursor: pointer;
+}
+.stc-side .stc-tools .stc-icon-btn:hover {
+  color: var(--stc-side-fg);
+  background: var(--stc-side-hover);
+}
+.stc-side .stc-tools svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  pointer-events: none;
+}
+.stc-side .stc-row {
+  min-height: 28px;
+  padding: 3px 0;
+  gap: 8px;
+  align-items: baseline;
+  box-sizing: border-box;
+}
+.stc-side .stc-row > span:first-child { min-width: 0; }
+.stc-side .stc-row > span:last-child {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stc-side .stc-name { gap: 3px; }
+.stc-side .stc-muted { color: var(--stc-side-muted); }
+.stc-side .stc-ready { color: var(--stc-side-ready); font-weight: 600; }
+.stc-side [data-slevel] { padding: 2px 0 4px; }
+.stc-side [data-slevel] .stc-row { min-height: 24px; padding-top: 0; }
+.stc-side .stc-bar { height: 4px; margin: 5px 0; }
+.stc-side .stc-bar div { background: #6366f1; }
+.stc-side .stc-sep { height: 1px; margin: 8px 0; background: var(--stc-side-line); }
+.stc-side .stc-bell { color: var(--stc-side-muted); }
+.stc-side .stc-row:focus-within .stc-bell { opacity: 1; }
+.stc-side a:focus-visible,
+.stc-side button:focus-visible,
+.stc-side [role=button]:focus-visible,
+.stc-side [data-time-toggle]:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.stc-side .stc-badge { font-size: 10px; vertical-align: middle; }
+.stc-side.stc-side-new { font-size: 12px; }
+.stc-side.stc-side-new .stc-side-head { font-size: 13px; }
+.stc-side.stc-side-new .stc-side-box { margin-top: 8px; padding: 0 4px; }
+@media (hover: none) {
+  .stc-side .stc-bell { opacity: .8; }
+}
+/* Match the game's actual collapsed classic-sidebar wrapper. */
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] {
+  width: 40px;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] .stc-side-box,
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] .stc-side-head > span:not(.stc-tools),
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] .stc-tools > button:not([data-open-settings]) { display: none !important; }
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] .stc-side-head {
+  width: 40px;
+  min-height: 40px;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] .stc-tools [data-open-settings] {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+}
+.w-16[class~="md:flex-shrink-0"] .stc-side[data-layout="classic"] .stc-tools [data-open-settings] svg { width: 20px; height: 20px; }
+
+
+/* ======================================================================
+   3. travel-strip.css
+   ====================================================================== */
+/* Extension-owned Travel strip presentation. Generated files stay untouched. */
+.stc-strip-wrap .stc-strip {
+  --stc-strip-fg: #e5e5e5;
+  --stc-strip-muted: #a3a3a3;
+  --stc-strip-line: #292929;
+  --stc-strip-surface: #111111;
+  --stc-strip-hover: #202020;
+  --stc-strip-green: #86efac;
+  --stc-strip-green-bg: rgba(34,197,94,.1);
+  --stc-strip-gold: #fcd34d;
+  --stc-strip-gold-bg: rgba(245,158,11,.1);
+  --stc-strip-blue: #93c5fd;
+  --stc-strip-blue-bg: rgba(59,130,246,.1);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--stc-strip-line);
+  border-radius: 8px;
+  background: var(--stc-strip-surface);
+  color: var(--stc-strip-fg);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+html:not(.dark) .stc-strip-wrap .stc-strip {
+  --stc-strip-fg: #262626;
+  --stc-strip-muted: #666666;
+  --stc-strip-line: #e5e5e5;
+  --stc-strip-surface: #ffffff;
+  --stc-strip-hover: #f5f5f5;
+  --stc-strip-green: #166534;
+  --stc-strip-green-bg: #f0fdf4;
+  --stc-strip-gold: #854d0e;
+  --stc-strip-gold-bg: #fefce8;
+  --stc-strip-blue: #1e40af;
+  --stc-strip-blue-bg: #eff6ff;
+}
+.stc-strip-wrap .stc-strip .stc-strip-items {
+  display: grid;
+  grid-template-columns: minmax(140px,1.5fr) repeat(3,minmax(52px,.6fr)) minmax(210px,2fr);
+  align-items: center;
+  gap: 10px 16px;
+  flex: 1 1 660px;
+  min-width: 0;
+}
+.stc-strip-wrap .stc-strip-items > span:first-child {
+  color: var(--stc-strip-muted);
+  font-size: 12px;
+}
+.stc-strip-wrap .stc-strip-items > span:nth-child(n+2):nth-child(-n+4) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  color: var(--stc-strip-muted);
+  font-size: 11px;
+}
+.stc-strip-wrap .stc-strip-items > span:nth-child(n+2):nth-child(-n+4) > b {
+  order: -1;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.stc-strip-wrap .stc-strip b {
+  color: var(--stc-strip-fg);
+  font-variant-numeric: tabular-nums;
+}
+.stc-strip-wrap .stc-strip-items > span:has(> .stc-bar) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding-left: 16px;
+  border-left: 1px solid var(--stc-strip-line);
+  font-variant-numeric: tabular-nums;
+}
+.stc-strip-wrap .stc-strip .stc-bar {
+  width: 90px;
+  max-width: 100%;
+  height: 4px;
+  margin: 0 3px;
+  background: var(--stc-strip-line);
+}
+.stc-strip-wrap .stc-strip .stc-bar div { background: #6366f1; }
+.stc-strip-wrap .stc-strip-items > span:has(> .stc-chip) {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.stc-strip-wrap .stc-strip .stc-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin: 0;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  color: var(--stc-strip-green);
+  background: var(--stc-strip-green-bg);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.stc-strip-wrap .stc-strip .stc-chip:nth-child(2) {
+  color: var(--stc-strip-gold);
+  background: var(--stc-strip-gold-bg);
+}
+.stc-strip-wrap .stc-strip .stc-chip:nth-child(3) {
+  color: var(--stc-strip-blue);
+  background: var(--stc-strip-blue-bg);
+}
+.stc-strip-wrap .stc-strip .stc-muted { color: var(--stc-strip-muted); }
+.stc-strip-wrap .stc-strip-items > .stc-warn { grid-column: 1 / -1; }
+.stc-strip-wrap .stc-strip .stc-details-btn {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin: 2px 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--stc-strip-line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--stc-strip-fg);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.stc-strip-wrap .stc-strip .stc-details-btn:hover { background: var(--stc-strip-hover); }
+.stc-strip-wrap.open .stc-details-btn { border-color: #6366f1; }
+.stc-strip-wrap .stc-details-btn:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 3px;
+}
+@media (max-width: 1100px) {
+  .stc-strip-wrap .stc-strip .stc-strip-items {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+    flex-basis: 100%;
+  }
+  .stc-strip-wrap .stc-strip-items > span:first-child,
+  .stc-strip-wrap .stc-strip-items > span:has(> .stc-bar) { grid-column: 1 / -1; }
+  .stc-strip-wrap .stc-strip-items > span:has(> .stc-bar) {
+    border-left: 0;
+    padding-left: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--stc-strip-line);
+  }
+}
+@media (max-width: 480px) {
+  .stc-strip-wrap .stc-strip { padding: 10px 12px; gap: 10px; }
+}
+
+
+/* ======================================================================
+   4. native-boosts.css
+   ====================================================================== */
+/* Use the game's controls; never show duplicate strip badges. */
+.stc-strip-wrap .stc-strip .stc-strip-items > span:has(> .stc-chip) {
+  display: none !important;
+}
+.stc-strip-wrap .stc-native-boosts-slot {
+  order: 1;
+  flex: 1 0 100%;
+  min-width: 0;
+  overflow: visible;
+}
+.stc-strip-wrap .stc-native-boosts-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+}
+.stc-native-boosts-row > div > button {
+  margin: 0 6px 4px 0;
+  border-radius: 5px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.stc-native-boosts-row > div > button:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+.stc-native-boosts-row > div > div[x-show] {
+  z-index: 50;
+  min-width: min(260px, calc(100vw - 48px));
+  max-width: min(360px, calc(100vw - 48px));
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+
+/* ======================================================================
+   5. native-raid.css
+   ====================================================================== */
+/* Native boosts and raid share a wrapping row. Preserve Alpine inline visibility. */
+.stc-strip-wrap .stc-native-boosts-slot,
+.stc-strip-wrap .stc-native-raid-slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.stc-strip-wrap .stc-native-raid-slot { order: 1; flex: 1 0 100%; min-width: 0; }
+.stc-strip-wrap .stc-native-boosts-row { flex: 1 1 360px; min-width: 0; }
+.stc-strip-wrap .stc-native-raid {
+  flex: 0 1 320px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 0 0 auto;
+  color: var(--stc-strip-fg);
+}
+.stc-strip-wrap .stc-native-raid > div {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+}
+.stc-strip-wrap .stc-native-raid > div > div { padding: 8px 10px; }
+.stc-strip-wrap .stc-native-raid img { height: 22px; width: auto; }
+.stc-strip-wrap .stc-native-raid .ml-4 { margin-left: 8px; }
+.stc-strip-wrap .stc-native-raid .text-gray-700 { color: var(--stc-strip-fg); }
+.stc-strip-wrap .stc-native-raid .text-gray-600,
+.stc-strip-wrap .stc-native-raid .text-gray-500 { color: var(--stc-strip-muted); }
+.stc-strip-wrap .stc-native-raid .text-indigo-600 { color: #a5b4fc; }
+html:not(.dark) .stc-strip-wrap .stc-native-raid .text-indigo-600 { color: #4338ca; }
+.stc-strip-wrap .stc-native-raid .text-right { margin-left: auto; padding-left: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stc-strip-wrap .stc-native-raid-slot:not(:has(> .stc-native-raid:not([style*="display: none"]))) { display: none; }
+@media (max-width: 600px) {
+  .stc-strip-wrap .stc-native-raid { flex-basis: 100%; margin-left: 0; }
+}
+
+
+/* ======================================================================
+   6. session-details.css
+   ====================================================================== */
+/* Extension-owned Session details presentation; no recording or storage logic. */
+#stc-walk.stc-dropdown {
+  --stc-details-surface: #111111;
+  --stc-details-fg: #e5e5e5;
+  --stc-details-muted: #a3a3a3;
+  --stc-details-line: #2b2b2b;
+  --stc-details-inset: #191919;
+  width: min(380px, calc(100vw - 32px));
+  max-width: 100%;
+  max-height: min(72vh, 760px);
+  padding: 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--stc-details-line);
+  border-radius: 8px;
+  background: var(--stc-details-surface);
+  color: var(--stc-details-fg);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: #737373 transparent;
+  overscroll-behavior: contain;
+}
+html:not(.dark) #stc-walk {
+  --stc-details-surface: #ffffff;
+  --stc-details-fg: #262626;
+  --stc-details-muted: #666666;
+  --stc-details-line: #e5e5e5;
+  --stc-details-inset: #f5f5f5;
+}
+#stc-walk .stc-session-heading.stc-row {
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 5px 10px;
+  margin: -16px -16px 14px !important;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--stc-details-line);
+  background: var(--stc-details-surface);
+}
+#stc-walk .stc-session-title { margin: 0; font-size: 14px; font-weight: 600; }
+#stc-walk .stc-session-state { grid-column: 1; min-width: 0; font-size: 11px; color: var(--stc-details-muted); }
+#stc-walk .stc-session-state [data-w=status] { font-weight: 400 !important; overflow-wrap: anywhere; }
+#stc-walk .stc-session-heading > button { grid-column: 2; grid-row: 1 / 3; align-self: start; width: 28px; height: 28px; border-radius: 5px; }
+#stc-walk .stc-session-heading > button:hover { background: var(--stc-details-inset); }
+#stc-walk .stc-grid-1 { gap: 16px; }
+#stc-walk .stc-grid-1 > div + div { border-top: 1px solid var(--stc-details-line); padding-top: 14px; }
+#stc-walk .stc-section-title { color: var(--stc-details-muted); font-size: 10px; font-weight: 600; letter-spacing: .07em; margin-bottom: 7px; }
+#stc-walk .stc-muted { color: var(--stc-details-muted); }
+#stc-walk .stc-row { min-height: 26px; gap: 10px; padding: 3px 0; box-sizing: border-box; }
+#stc-walk .stc-row > span:last-child { font-variant-numeric: tabular-nums; }
+#stc-walk .stc-session-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin: 10px 0; }
+#stc-walk .stc-session-metrics .stc-row { display: flex; flex-direction: column-reverse; align-items: flex-start; justify-content: center; gap: 2px; padding: 9px 10px; min-width: 0; border-radius: 6px; background: var(--stc-details-inset); }
+#stc-walk .stc-session-metrics [data-w] { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; text-align: left; }
+#stc-walk .stc-session-metrics .stc-muted { font-size: 11px; }
+#stc-walk .stc-btns { gap: 7px; margin-top: 12px; }
+#stc-walk .stc-btns button { min-height: 32px; padding: 6px 10px; border: 1px solid var(--stc-details-line); border-radius: 5px; font-family: inherit; font-size: 11px; font-weight: 500; line-height: 1.4; box-shadow: none; }
+#stc-walk [data-toggle-session-pause] { background: #4f46e5; border-color: #4f46e5 !important; color: #ffffff; }
+#stc-walk [data-toggle-session-pause]:not(:disabled):hover { background: #4338ca; }
+#stc-walk [data-end-session], #stc-walk [data-export-csv] { background: transparent; color: var(--stc-details-fg); }
+#stc-walk [data-end-session]:not(:disabled):hover { background: var(--stc-details-inset); border-color: #ef4444; }
+#stc-walk [data-export-csv]:hover { background: var(--stc-details-inset); }
+#stc-walk button:disabled { opacity: .4; cursor: not-allowed; }
+#stc-walk button:focus-visible, #stc-walk summary:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+#stc-walk .stc-bar { height: 4px; margin: 7px 0; background: var(--stc-details-line); }
+#stc-walk .stc-note { color: var(--stc-details-muted); font-size: 11px; line-height: 1.5; }
+#stc-walk [data-w=boosts], #stc-walk .stc-section-title:has(+ [data-w=boosts]) { display: none; }
+#stc-walk .stc-session-history > summary { cursor: pointer; color: var(--stc-details-muted); font-size: 11px; font-weight: 600; }
+#stc-walk .stc-session-history > summary::marker { color: #818cf8; }
+#stc-walk .stc-session-history > summary [data-manage-sessions] { float: right; padding: 0 2px; color: var(--stc-details-fg); }
+#stc-walk .stc-session-history [data-w=history] { max-height: 240px; overflow-y: auto; margin-top: 8px; scrollbar-width: thin; }
+#stc-walk [data-w=history] .stc-row { align-items: baseline; flex-wrap: wrap; gap: 2px 8px; padding: 6px 0; }
+#stc-walk [data-w=history] .stc-row + .stc-row { border-top: 1px solid var(--stc-details-line); }
+#stc-walk [data-w=history] .stc-row > span:last-child { margin-left: auto; }
+
+
+/* ======================================================================
+   7. settings.css
+   ====================================================================== */
+/* Extension-owned settings presentation. Original inputs and handlers are retained. */
+#stc-settings {
+  --stc-settings-bg: #111111;
+  --stc-settings-fg: #e5e5e5;
+  --stc-settings-muted: #a3a3a3;
+  --stc-settings-line: #2b2b2b;
+  --stc-settings-inset: #191919;
+  --stc-settings-input: #0a0a0a;
+  padding: 4vh 12px;
+  font-family: inherit;
+}
+html:not(.dark) #stc-settings {
+  --stc-settings-bg: #ffffff;
+  --stc-settings-fg: #262626;
+  --stc-settings-muted: #666666;
+  --stc-settings-line: #e5e5e5;
+  --stc-settings-inset: #f5f5f5;
+  --stc-settings-input: #ffffff;
+}
+#stc-settings #stc-settings-box {
+  width: min(820px,100%);
+  max-height: 92vh;
+  max-height: 92dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border: 1px solid var(--stc-settings-line);
+  border-radius: 8px;
+  background: var(--stc-settings-bg);
+  color: var(--stc-settings-fg);
+  font-size: 13px;
+}
+#stc-settings #stc-settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--stc-settings-line);
+  background: var(--stc-settings-bg);
+  font-size: 15px;
+  font-weight: 600;
+}
+#stc-settings [data-close-settings] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  color: var(--stc-settings-muted);
+}
+#stc-settings [data-close-settings]:hover { background: var(--stc-settings-inset); color: var(--stc-settings-fg); }
+#stc-settings #stc-settings-body { padding: 20px; }
+#stc-settings #stc-settings-body.stc-settings-layout {
+  display: grid;
+  grid-template-columns: 156px minmax(0,1fr);
+  gap: 24px;
+  align-items: start;
+}
+#stc-settings .stc-settings-nav {
+  position: sticky;
+  top: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: calc(92vh - 100px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+#stc-settings .stc-settings-nav button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--stc-settings-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+#stc-settings .stc-settings-nav button:hover { background: var(--stc-settings-inset); color: var(--stc-settings-fg); }
+#stc-settings .stc-settings-content { min-width: 0; }
+#stc-settings .stc-settings-section { scroll-margin-top: 72px; min-width: 0; }
+#stc-settings .stc-settings-section + .stc-settings-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--stc-settings-line); }
+#stc-settings .stc-settings-section > .stc-section-title {
+  margin: 0 0 12px;
+  color: var(--stc-settings-fg);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#stc-settings .stc-settings-section > label {
+  min-height: 38px;
+  padding: 7px 0;
+  gap: 18px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+#stc-settings input[type=number], #stc-settings input[type=password], #stc-settings select {
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--stc-settings-line);
+  border-radius: 5px;
+  background: var(--stc-settings-input);
+  color: var(--stc-settings-fg);
+  font: inherit;
+  font-size: 12px;
+}
+#stc-settings input[type=number] { flex: 0 0 100px; width: 100px; min-width: 0; }
+#stc-settings input[type=password] { width: 100%; }
+#stc-settings input[type=checkbox] { flex: 0 0 16px; margin: 0; accent-color: #6366f1; }
+#stc-settings input[type=range] { flex: 0 1 140px; width: 140px; min-width: 90px; }
+#stc-settings .stc-note { margin-top: 6px; color: var(--stc-settings-muted); font-size: 11px; line-height: 1.6; }
+#stc-settings .stc-btns { gap: 8px; margin-top: 10px; margin-bottom: 6px; }
+#stc-settings .stc-btns button { min-height: 32px; padding: 6px 10px; border-radius: 5px; font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.4; box-shadow: none; }
+#stc-settings #stc-key-save { background: #4f46e5; color: #ffffff; }
+#stc-settings #stc-key-save:hover { background: #4338ca; }
+#stc-settings .stc-btns button:not(#stc-key-save) { background: var(--stc-settings-inset); color: var(--stc-settings-fg); border: 1px solid var(--stc-settings-line); }
+#stc-settings #stc-api-status:not(:empty) { padding: 8px 10px; border-radius: 5px; background: var(--stc-settings-inset); }
+#stc-settings .stc-prof-grid { gap: 2px 16px; }
+#stc-settings .stc-prof-grid label { gap: 8px; }
+#stc-settings .stc-prof-grid input { flex-basis: 72px; width: 72px; }
+#stc-settings .stc-rows-pick { padding: 8px 10px; border: 1px solid var(--stc-settings-line); border-radius: 5px; }
+#stc-settings .stc-rows-pick summary { cursor: pointer; color: var(--stc-settings-fg); }
+#stc-settings .stc-rows-grid { gap: 4px 12px; }
+#stc-settings button:focus-visible, #stc-settings input:focus-visible, #stc-settings select:focus-visible, #stc-settings summary:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 640px) {
+  #stc-settings #stc-settings-body.stc-settings-layout { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 16px; }
+  #stc-settings .stc-settings-nav { position: static; flex-direction: row; flex-wrap: wrap; max-height: none; gap: 4px; }
+  #stc-settings .stc-settings-nav button { padding: 6px 8px; background: var(--stc-settings-inset); font-size: 11px; }
+  #stc-settings .stc-prof-grid { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 400px) {
+  #stc-settings .stc-rows-grid { grid-template-columns: minmax(0,1fr); }
+}
+
+
+/* ======================================================================
+   8. sessions.css
+   ====================================================================== */
+/* Sessions manager presentation. Existing rows, inputs and handlers are retained. */
+#stc-sessions .stc-win {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+#stc-sessions .stc-win-head {
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 12px 20px;
+}
+#stc-sessions [data-close-sessions] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+}
+#stc-sessions [data-close-sessions]:hover { background: rgba(128,128,128,.15); }
+#stc-sessions .stc-win-body { padding: 16px 20px 20px; }
+#stc-sessions .stc-btns { gap: 8px; margin-top: 0; margin-bottom: 12px; }
+#stc-sessions .stc-btns button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: none;
+}
+#stc-sessions .stc-btns button[data-sess-add],
+#stc-sessions .stc-btns button[data-sess-paste-save] { background: #4f46e5; color: #fff; }
+#stc-sessions .stc-btns button[data-sess-add]:hover,
+#stc-sessions .stc-btns button[data-sess-paste-save]:hover { background: #4338ca; }
+#stc-sessions .stc-btns button:not([data-sess-add]):not([data-sess-paste-save]) {
+  background: rgba(128,128,128,.12);
+  color: inherit;
+  border: 1px solid var(--stc-border);
+}
+#stc-sessions .stc-sess-count {
+  margin: 0 0 10px;
+  color: var(--stc-muted);
+  font-size: 11px;
+}
+#stc-sessions .stc-sess {
+  grid-template-columns: minmax(0,1fr) auto auto;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  margin: 0 0 8px;
+  border: 1px solid var(--stc-border);
+  border-radius: 8px;
+  background: rgba(128,128,128,.06);
+}
+#stc-sessions .stc-sess:hover { background: rgba(99,102,241,.08); }
+#stc-sessions .stc-sess > b {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+#stc-sessions .stc-sess .stc-muted {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+#stc-sessions .stc-sess input[type=number] {
+  width: 84px !important;
+  min-height: 30px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--stc-card);
+  font-size: 12px;
+}
+#stc-sessions .stc-sess-tools { gap: 4px; }
+#stc-sessions .stc-sess-tools .stc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+}
+#stc-sessions .stc-sess-tools .stc-icon-btn:hover { background: rgba(128,128,128,.15); }
+#stc-sessions .stc-form {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  margin: 0 0 12px;
+}
+#stc-sessions .stc-form label { gap: 4px; font-size: 11px; }
+#stc-sessions .stc-form input {
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: var(--stc-card);
+  font-size: 12px;
+}
+#stc-sessions textarea {
+  min-height: 90px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 5px;
+  background: var(--stc-card);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+#stc-sessions .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+#stc-sessions button:focus-visible,
+#stc-sessions input:focus-visible,
+#stc-sessions textarea:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 560px) {
+  #stc-sessions .stc-sess { grid-template-columns: minmax(0,1fr); }
+  #stc-sessions .stc-sess-tools { justify-content: flex-end; }
+}
+
+
+/* ======================================================================
+   9. guild.css
+   ====================================================================== */
+/* Guild requirements window presentation. Existing inputs and handlers are retained. */
+#stc-guild .stc-win {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+#stc-guild .stc-win-head {
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 12px 20px;
+}
+#stc-guild [data-close-guild] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+}
+#stc-guild [data-close-guild]:hover { background: rgba(128,128,128,.15); }
+#stc-guild .stc-win-body { padding: 16px 20px 20px; }
+#stc-guild .stc-req-form {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--stc-border);
+  border-radius: 8px;
+  background: rgba(128,128,128,.06);
+}
+#stc-guild .stc-req-form label {
+  gap: 4px;
+  font-size: 11px;
+  color: var(--stc-muted);
+}
+#stc-guild .stc-req-form select,
+#stc-guild .stc-req-item select,
+#stc-guild .stc-req-item input {
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--stc-border);
+  border-radius: 5px;
+  background: var(--stc-card);
+  color: var(--stc-text);
+  font: inherit;
+  font-size: 12px;
+}
+#stc-guild .stc-req-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--stc-border);
+  border-radius: 8px;
+  background: rgba(128,128,128,.06);
+}
+#stc-guild .stc-req-item select { flex: 1 1 auto; min-width: 0; }
+#stc-guild .stc-req-item input { flex: 0 0 84px; width: 84px; }
+#stc-guild .stc-req-item .stc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+}
+#stc-guild .stc-req-item .stc-icon-btn:hover { background: rgba(239,68,68,.15); color: var(--stc-bad); }
+#stc-guild .stc-btns { gap: 8px; margin-top: 10px; }
+#stc-guild .stc-btns button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: none;
+}
+#stc-guild .stc-btns button[data-req-add] { background: #4f46e5; color: #fff; }
+#stc-guild .stc-btns button[data-req-add]:hover { background: #4338ca; }
+#stc-guild .stc-btns button:not([data-req-add]) {
+  background: rgba(128,128,128,.12);
+  color: inherit;
+  border: 1px solid var(--stc-border);
+}
+#stc-guild .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+#stc-guild .stc-pvp {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  font-size: 11px;
+}
+#stc-guild .stc-pvp.good { border-color: rgba(34,197,94,.35); }
+#stc-guild .stc-pvp.mid { border-color: rgba(245,158,11,.35); }
+#stc-guild .stc-pvp.bad { border-color: rgba(239,68,68,.35); }
+#stc-guild button:focus-visible,
+#stc-guild select:focus-visible,
+#stc-guild input:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 480px) {
+  #stc-guild .stc-req-item { flex-wrap: wrap; }
+  #stc-guild .stc-req-item input { flex: 1 1 84px; }
+}
+
+
+/* ======================================================================
+   10. dock.css
+   ====================================================================== */
+/* Chat popup presentation. Existing tabs, frames and handlers are retained. */
+/* Hide the game's own Show/Hide Chat button and its chat box; the Companion chat popup replaces them. */
+#show_hide_chat_btn,
+#chatBox {
+  display: none !important;
+}
+#stc-dock {
+  width: min(460px, calc(100vw - 24px));
+  height: min(72vh, 720px);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0,0,0,.55);
+}
+#stc-dock-head {
+  height: 44px;
+  padding: 0 6px 0 4px;
+  gap: 2px;
+}
+#stc-dock-head button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+#stc-dock-head button:hover { background: rgba(128,128,128,.12); }
+#stc-dock-head button.active {
+  background: rgba(99,102,241,.14);
+  color: var(--stc-text);
+  box-shadow: inset 0 -2px 0 var(--stc-accent);
+}
+#stc-dock-head .stc-dock-close {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 6px;
+}
+#stc-dock-head .stc-dock-close:hover { background: rgba(239,68,68,.15); color: var(--stc-bad); }
+#stc-dock-head #stc-dock-back {
+  border-right: 1px solid var(--stc-border);
+  border-radius: 6px 0 0 6px;
+}
+#stc-dock-body { background: var(--stc-card); }
+#stc-dock-body iframe {
+  border: 0;
+  background: var(--stc-card);
+}
+#stc-dock-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--stc-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+#stc-dock .stc-unread {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--stc-bad);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+}
+#stc-dock button:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 520px) {
+  #stc-dock {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    height: min(70vh, 640px);
+  }
+}
+
+
+/* ======================================================================
+   11. notes.css
+   ====================================================================== */
+/* Notifications presentation only; iframe and handlers are retained. */
+#stc-notes {
+  width: min(460px, calc(100vw - 24px));
+  height: min(72vh, 720px);
+  height: min(72dvh, 720px);
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  box-sizing: border-box;
+  border: 1px solid var(--stc-border, #404040);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--stc-card, #111111);
+  color: var(--stc-text, #e5e5e5);
+  box-shadow: 0 20px 50px rgba(0,0,0,.35);
+}
+#stc-notes-head {
+  height: 48px;
+  min-height: 48px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 8px 0 14px;
+  gap: 8px;
+  border-bottom: 1px solid var(--stc-border, #404040);
+  background: var(--stc-card, #111111);
+  color: var(--stc-text, #e5e5e5);
+}
+#stc-notes-head span:first-child {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+#stc-notes-head a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--stc-text, #e5e5e5);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#stc-notes-head a:hover { background: rgba(128,128,128,.12); }
+#stc-notes-head .stc-notes-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  color: var(--stc-text, #e5e5e5);
+  cursor: pointer;
+}
+#stc-notes-head .stc-notes-close:hover { background: rgba(128,128,128,.16); }
+#stc-notes-body { min-height: 0; background: var(--stc-card, #111111); }
+#stc-notes-body iframe { display: block; width: 100%; border: 0; background: var(--stc-card, #111111); }
+#stc-notes button:focus-visible,
+#stc-notes a:focus-visible,
+#stc-notes .stc-notes-close:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 520px) {
+  #stc-notes {
+    left: 12px; right: 12px; width: auto;
+    height: min(70vh, 640px);
+    height: min(70dvh, 640px);
+  }
+}
+@media (max-height: 480px) {
+  #stc-notes { top: 12px; bottom: 12px; height: auto; }
+}
+
+
+/* ======================================================================
+   12. player-session.css
+   ====================================================================== */
+/* Join adjacent Travel cards without moving Alpine-managed nodes. */
+#complete-travel-container > :has([x-text="user.level"]):has(+ .stc-strip-wrap) {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+#complete-travel-container > :has([x-text="user.level"]):has(+ .stc-strip-wrap) > .w-full {
+  box-shadow: none;
+  border: 1px solid var(--stc-border);
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  overflow: visible;
+}
+#complete-travel-container > :has([x-text="user.level"]):has(+ .stc-strip-wrap) > .w-full > .rounded-b-lg,
+#complete-travel-container > :has([x-text="user.level"]):has(+ .stc-strip-wrap) > .w-full > .rounded-b-lg > .h-2 {
+  border-radius: 0;
+}
+#complete-travel-container > :has([x-text="user.level"]) + .stc-strip-wrap {
+  margin-top: 0;
+  padding-top: 0;
+  overflow: visible;
+}
+#complete-travel-container > :has([x-text="user.level"]) + .stc-strip-wrap > .stc-strip {
+  margin-top: 0;
+  border-color: var(--stc-border);
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  overflow: visible;
+}
+
+
+/* ======================================================================
+   13. planner.css
+   ====================================================================== */
+/* Full-page Profession planner presentation; calculations and handlers unchanged. */
+.stc-planner {
+  --stc-plan-muted: #a3a3a3;
+  --stc-plan-warning: #fbbf24;
+  --stc-plan-input: #0a0a0a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+html:not(.dark) .stc-planner {
+  --stc-plan-muted: #666666;
+  --stc-plan-warning: #92400e;
+  --stc-plan-input: #ffffff;
+}
+.stc-planner .stc-muted, .stc-planner .stc-note { color: var(--stc-plan-muted); }
+.stc-planner .stc-plan-toggle { font-size: 14px; line-height: 1.5; }
+.stc-planner [data-prof-level] { margin: 8px 0 12px; }
+.stc-planner .stc-row { gap: 6px 16px; padding: 3px 0; }
+.stc-planner select, .stc-planner input[type=time] {
+  min-height: 32px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border: 1px solid var(--stc-border);
+  border-radius: 5px;
+  background: var(--stc-plan-input);
+  color: var(--stc-text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.stc-planner [data-plan-head] { padding: 10px 12px; border: 1px solid var(--stc-border); border-radius: 6px; background: rgba(128,128,128,.05); }
+.stc-planner [data-plan-rows] { display: grid; gap: 8px; padding-top: 6px; }
+.stc-planner .stc-plan-row, .stc-planner .stc-plan-row[data-plan-pick] {
+  grid-template-columns: minmax(100px,1.1fr) minmax(120px,1.3fr) minmax(90px,1fr) minmax(90px,1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--stc-border);
+  border-radius: 6px;
+  background: rgba(128,128,128,.04);
+  font-variant-numeric: tabular-nums;
+}
+.stc-planner .stc-plan-row > span { min-width: 0; overflow-wrap: break-word; }
+.stc-planner .stc-plan-row b { color: var(--stc-text); font-size: 14px; font-weight: 600; }
+.stc-planner .stc-plan-row .stc-muted { font-size: 11px; }
+.stc-planner .stc-plan-row:not(.stc-plan-off) { background: rgba(99,102,241,.06); }
+.stc-planner .stc-plan-row[data-plan-pick]:hover { background: rgba(99,102,241,.12); border-color: var(--stc-accent); }
+.stc-planner .stc-plan-off { opacity: 1; color: var(--stc-plan-muted); }
+.stc-planner .stc-warn { color: var(--stc-plan-warning); font-weight: 500; }
+.stc-planner .stc-plan-use:not(:empty) {
+  padding: 4px 8px;
+  border: 1px solid var(--stc-border);
+  border-radius: 5px;
+  color: var(--stc-text);
+  background: rgba(99,102,241,.12);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.stc-planner .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+.stc-planner button:focus-visible, .stc-planner select:focus-visible, .stc-planner input:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 700px) {
+  .stc-planner .stc-plan-row, .stc-planner .stc-plan-row[data-plan-pick] { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 16px; }
+  .stc-planner .stc-plan-use { grid-column: 1 / -1; justify-self: end; }
+  .stc-planner .stc-row { flex-wrap: wrap; }
+  .stc-planner .stc-row > span:last-child { text-align: left; }
+}
+
+
+/* ======================================================================
+   14. quests.css
+   ====================================================================== */
+/* Full-page Quest helper presentation; existing data and actions retained. */
+.stc-quests {
+  --stc-quest-muted: #a3a3a3;
+  font-size: 12px;
+  line-height: 1.6;
+}
+html:not(.dark) .stc-quests { --stc-quest-muted: #666666; }
+.stc-quests .stc-muted, .stc-quests .stc-note { color: var(--stc-quest-muted); }
+.stc-quests .stc-card-title { margin-bottom: 12px; }
+.stc-quests .stc-card-title > span:first-child { font-size: 14px; font-weight: 600; }
+.stc-quests .stc-quest-top {
+  padding: 12px;
+  border: 1px solid var(--stc-border);
+  border-radius: 6px;
+  background: rgba(99,102,241,.05);
+  color: var(--stc-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.stc-quests .stc-quest-top:hover { border-color: var(--stc-accent); background: rgba(99,102,241,.1); }
+.stc-quests .stc-quest-top > .stc-row:first-child { align-items: flex-start; gap: 12px; }
+.stc-quests .stc-quest-top > .stc-row:first-child > b { font-size: 14px; font-weight: 600; text-align: left; }
+.stc-quests .stc-quest-top > .stc-row:first-child > span {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--stc-border);
+  border-radius: 5px;
+  background: rgba(99,102,241,.12);
+  color: var(--stc-text);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stc-quests .stc-quest-top .stc-bar { height: 6px; margin: 10px 0 8px; border-radius: 3px; }
+.stc-quests .stc-quest-top .stc-bar > span { border-radius: inherit; }
+.stc-quests .stc-quest-top > .stc-row:last-child { gap: 6px 16px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.stc-quests [data-q] > .stc-row { padding: 8px 0; font-variant-numeric: tabular-nums; }
+.stc-quests .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+.stc-quests a[data-q-show] { color: var(--stc-text); text-decoration: underline; text-decoration-color: var(--stc-border); text-underline-offset: 3px; }
+.stc-quests a[data-q-show]:hover { color: var(--stc-accent); text-decoration-color: currentColor; }
+.stc-quests .stc-seg { border-radius: 5px; flex-wrap: wrap; }
+.stc-quests .stc-seg button { min-height: 32px; padding: 5px 10px; font-family: inherit; font-size: 12px; color: var(--stc-quest-muted); }
+.stc-quests .stc-seg button:hover { background: rgba(128,128,128,.12); color: var(--stc-text); }
+.stc-quests .stc-seg button.on, .stc-quests .stc-seg button.on:hover { background: #4f46e5; color: #ffffff; }
+.stc-quests button:focus-visible, .stc-quests a:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .stc-quests .stc-row { flex-wrap: wrap; }
+  .stc-quests .stc-quest-top > .stc-row:first-child { flex-wrap: nowrap; }
+  .stc-quests .stc-quest-top > .stc-row:last-child > span { text-align: left; }
+  .stc-quests .stc-seg { max-width: 100%; }
+}
+
+
+/* ======================================================================
+   15. crafting.css
+   ====================================================================== */
+/* Companion crafting helper only; game modal and actions are unchanged. */
+.stc-craft {
+  --stc-craft-muted: #a3a3a3;
+  --stc-craft-warning: #fbbf24;
+  --stc-craft-input: #0a0a0a;
+  padding: 10px 12px;
+  border: 1px solid var(--stc-border);
+  border-radius: 6px;
+  background: rgba(99,102,241,.05);
+  font-size: 12px;
+  line-height: 1.5;
+}
+html:not(.dark) .stc-craft {
+  --stc-craft-muted: #666666;
+  --stc-craft-warning: #92400e;
+  --stc-craft-input: #ffffff;
+}
+.stc-craft .stc-craft-title { margin-bottom: 8px; font-size: 11px; color: var(--stc-craft-muted); letter-spacing: .04em; }
+.stc-craft .stc-row { gap: 6px 10px; padding: 5px 0; align-items: start; font-variant-numeric: tabular-nums; }
+.stc-craft .stc-row > span { min-width: 0; overflow-wrap: break-word; }
+.stc-craft .stc-row + .stc-row { border-top: 1px solid var(--stc-border); }
+.stc-craft .stc-row:has([data-craft-fill]),
+.stc-craft .stc-row:has(.stc-warn) { display: grid; grid-template-columns: minmax(0,1fr); gap: 4px; }
+.stc-craft .stc-row:has([data-craft-fill]) > span:last-child,
+.stc-craft .stc-row:has(.stc-warn) > span:last-child { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; text-align: left; }
+.stc-craft .stc-muted, .stc-craft .stc-note { color: var(--stc-craft-muted); }
+.stc-craft .stc-warn { color: var(--stc-craft-warning); font-weight: 500; }
+.stc-craft .stc-craft-fill {
+  min-height: 26px;
+  margin-left: auto;
+  padding: 3px 8px !important;
+  border: 1px solid var(--stc-border) !important;
+  border-radius: 5px;
+  background: rgba(99,102,241,.12);
+  color: var(--stc-text);
+  font-family: inherit;
+  font-size: 11px !important;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.stc-craft .stc-craft-fill:hover { background: rgba(99,102,241,.2); border-color: var(--stc-accent) !important; }
+.stc-craft input[data-craft-keep] {
+  width: 52px;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid var(--stc-border);
+  border-radius: 5px;
+  background: var(--stc-craft-input);
+  color: var(--stc-text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.stc-craft .stc-row:has(> span > b) {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--stc-border);
+  border-radius: 5px;
+  background: rgba(99,102,241,.08);
+}
+.stc-craft .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+.stc-craft button:focus-visible, .stc-craft input:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+
+
+/* ======================================================================
+   16. battle.css
+   ====================================================================== */
+/* Full-page Battle Companion card only; game controls and calculations unchanged. */
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) {
+  --stc-battle-muted: #a3a3a3;
+  font-size: 12px;
+  line-height: 1.6;
+}
+html:not(.dark) #stc-page-card:has([data-c="arena"]):has([data-c="boss"]) { --stc-battle-muted: #666666; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-card-title { margin-bottom: 12px; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-card-title > span:first-child { font-size: 14px; font-weight: 600; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) > .stc-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) > .stc-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--stc-border);
+  border-radius: 6px;
+  background: rgba(128,128,128,.04);
+}
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-section-title {
+  margin: 0 0 8px;
+  color: var(--stc-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-row { align-items: baseline; gap: 6px 12px; padding: 4px 0; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-row > span { min-width: 0; overflow-wrap: break-word; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-row > span:last-child { font-variant-numeric: tabular-nums; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-muted,
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-note { color: var(--stc-battle-muted); }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-bar { height: 6px; margin: 8px 0; border-radius: 3px; }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) a:hover { color: var(--stc-accent); }
+#stc-page-card:has([data-c="arena"]):has([data-c="boss"]) a:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 700px) {
+  #stc-page-card:has([data-c="arena"]):has([data-c="boss"]) > .stc-grid { grid-template-columns: minmax(0,1fr); }
+  #stc-page-card:has([data-c="arena"]):has([data-c="boss"]) .stc-row { flex-wrap: wrap; }
+}
+
+
+/* ======================================================================
+   17. home.css
+   ====================================================================== */
+/* Home Companion card presentation only; existing renderer and mounting retained. */
+#stc-page-card:has([data-c="player"]) {
+  --stc-home-muted: #a3a3a3;
+  font-size: 12px;
+  line-height: 1.6;
+}
+html:not(.dark) #stc-page-card:has([data-c="player"]) { --stc-home-muted: #666666; }
+#stc-page-card:has([data-c="player"]) .stc-card-title { margin-bottom: 12px; }
+#stc-page-card:has([data-c="player"]) .stc-card-title > span:first-child { font-size: 14px; font-weight: 600; }
+#stc-page-card:has([data-c="player"]) > .stc-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+#stc-page-card:has([data-c="player"]) > .stc-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--stc-border);
+  border-radius: 6px;
+  background: rgba(128,128,128,.04);
+}
+#stc-page-card:has([data-c="player"]) .stc-section-title {
+  margin: 0 0 8px;
+  color: var(--stc-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#stc-page-card:has([data-c="player"]) .stc-row { align-items: baseline; gap: 6px 12px; padding: 4px 0; }
+#stc-page-card:has([data-c="player"]) .stc-row > span { min-width: 0; overflow-wrap: break-word; }
+#stc-page-card:has([data-c="player"]) .stc-row > span:last-child { flex: 0 1 65%; font-variant-numeric: tabular-nums; }
+#stc-page-card:has([data-c="player"]) .stc-muted,
+#stc-page-card:has([data-c="player"]) .stc-note { color: var(--stc-home-muted); }
+#stc-page-card:has([data-c="player"]) .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+#stc-page-card:has([data-c="player"]) .stc-bar { height: 6px; margin: 8px 0; border-radius: 3px; }
+#stc-page-card:has([data-c="player"]) a:hover { color: var(--stc-accent); }
+#stc-page-card:has([data-c="player"]) a:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (min-width: 1600px) {
+  #stc-page-card:has([data-c="player"]) > .stc-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
+}
+@media (max-width: 700px) {
+  #stc-page-card:has([data-c="player"]) > .stc-grid { grid-template-columns: minmax(0,1fr); }
+  #stc-page-card:has([data-c="player"]) .stc-row { flex-wrap: wrap; }
+}
+
+
+/* ======================================================================
+   18. market.css
+   ====================================================================== */
+/* Companion market watcher only; polling, alerts and game actions unchanged. */
+#stc-page-card:has([data-c="market"]) { --stc-market-muted: #a3a3a3; --stc-market-input: #0a0a0a; font-size: 12px; line-height: 1.6; }
+html:not(.dark) #stc-page-card:has([data-c="market"]) { --stc-market-muted: #666666; --stc-market-input: #ffffff; }
+#stc-page-card:has([data-c="market"]) .stc-card-title { margin-bottom: 12px; }
+#stc-page-card:has([data-c="market"]) .stc-card-title > span:first-child { font-size: 14px; font-weight: 600; }
+#stc-page-card:has([data-c="market"]) > .stc-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+#stc-page-card:has([data-c="market"]) > .stc-grid > div { min-width: 0; padding: 12px; border: 1px solid var(--stc-border); border-radius: 6px; background: rgba(128,128,128,.04); }
+#stc-page-card:has([data-c="market"]) .stc-section-title { margin: 0 0 8px; color: var(--stc-text); font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+#stc-page-card:has([data-c="market"]) .stc-row { gap: 8px 12px; padding: 6px 0; align-items: baseline; }
+#stc-page-card:has([data-c="market"]) .stc-row > span { min-width: 0; overflow-wrap: break-word; }
+#stc-page-card:has([data-c="market"]) .stc-row > span:last-child { font-variant-numeric: tabular-nums; }
+#stc-page-card [data-c="market"] .stc-row + .stc-row { border-top: 1px solid var(--stc-border); }
+#stc-page-card:has([data-c="market"]) label.stc-row { align-items: center; min-height: 38px; box-sizing: border-box; }
+#stc-page-card:has([data-c="market"]) input[type=number] { flex: 0 1 144px; width: 144px; min-width: 96px; min-height: 32px; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--stc-border); border-radius: 5px; background: var(--stc-market-input); color: var(--stc-text); font-family: inherit; font-size: 12px; font-variant-numeric: tabular-nums; }
+#stc-page-card:has([data-c="market"]) input[type=checkbox] { appearance: auto; width: 16px; height: 16px; flex: 0 0 16px; margin: 0; accent-color: var(--stc-accent); cursor: pointer; }
+#stc-page-card:has([data-c="market"]) .stc-muted, #stc-page-card:has([data-c="market"]) .stc-note { color: var(--stc-market-muted); }
+#stc-page-card:has([data-c="market"]) .stc-note { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+#stc-page-card:has([data-c="market"]) input:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (max-width: 800px) {
+  #stc-page-card:has([data-c="market"]) > .stc-grid { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 420px) {
+  #stc-page-card:has([data-c="market"]) label.stc-row { flex-wrap: wrap; }
+}
+`;
+document.head.appendChild(style);
+
+// ===========================================================================
+// 1. home-mount.js
+// ===========================================================================
+
+;
+/* Provide a direct Home mount for the existing Companion card renderer.
+   Run before content.js; leave game-owned nodes and data untouched. */
+(() => {
+  'use strict';
+  if (location.pathname !== '/home' && location.pathname !== '/') return;
+  const css = document.createElement('style');
+  css.textContent = `
+    .web-app-container > .stc-home-mount:empty { height: 1px; min-height: 1px; margin-top: 0; }
+    .web-app-container > .stc-home-mount:has(> #stc-page-card) { margin-top: 2rem; }
+    .web-app-container > .stc-home-mount > #stc-page-card { margin-bottom: 0; }
+    .web-app-container > .stc-home-mount:has(> #stc-page-card) + .mt-8 { margin-top: 1rem; }
+  `;
+  document.head.appendChild(css);
+  function mount() {
+    const container = document.querySelector('.web-app-container');
+    if (!container) return false;
+    if ([...container.children].some(el => /max-w-/.test(el.className))) return true;
+    const column = container.querySelector(':scope > .mt-8 > .max-w-6xl');
+    if (!column) return false;
+    const slot = document.createElement('div');
+    slot.className = 'max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 stc-home-mount';
+    slot.dataset.stcHomeMount = '1';
+    container.insertBefore(slot, column.parentElement);
+    return true;
+  }
+  if (!mount()) {
+    const observer = new MutationObserver(() => { if (mount()) observer.disconnect(); });
+    observer.observe(document.body, {childList: true, subtree: true});
+    window.addEventListener('pagehide', () => observer.disconnect(), {once: true});
+  }
+})();
+
+;
+
+// ===========================================================================
+// 2. content.js
+// ===========================================================================
+
+;
 
 (function () {
   'use strict';
@@ -1170,245 +2804,10 @@
   // ===========================================================================
   // 10. Styles (matched to the game's own look: Inter, dark cards, indigo accents)
   // ===========================================================================
-  const style = document.createElement('style');
-  style.textContent = `
-    :root {
-      --stc-card: #111111; --stc-border: #262626; --stc-text: #e5e5e5; --stc-muted: #8a8a8a;
-      --stc-accent: #6366f1; --stc-accent-strong: #4f46e5; --stc-ready: #22c55e; --stc-warn: #f59e0b; --stc-bad: #ef4444;
-      --stc-track: rgba(115,115,115,.25);
-    }
-    /* The game switches to light mode by removing class="dark" from <html>. */
-    html:not(.dark) { --stc-card: #ffffff; --stc-border: #e5e5e5; --stc-text: #262626; --stc-muted: #737373; }
-    html:not(.dark) .stc-strip b { color: #111; }
-    .stc-ui, #stc-settings, #stc-toast, #stc-dock, #stc-notes, #stc-page-pop { font-family: Inter, sans-serif; }
-    .stc-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
-    .stc-row > span:last-child { font-variant-numeric: tabular-nums; text-align: right; }
-    .stc-muted { color: var(--stc-muted); }
-    .stc-ready { color: var(--stc-ready); font-weight: 600; }
-    .stc-warn { color: var(--stc-warn); }
-    .stc-row a, .stc-side a, .stc-card a { color: inherit; text-decoration: none; }
-    .stc-row a:hover, .stc-side a:hover, .stc-card a:hover { text-decoration: underline; }
-    .stc-note { margin-top: 6px; font-size: 11px; color: var(--stc-muted); }
-    .stc-bar { height: 6px; border-radius: 3px; background: var(--stc-track); overflow: hidden; margin: 4px 0; }
-    .stc-bar div { height: 100%; width: 0; background: var(--stc-accent); border-radius: 3px; }
-    .stc-icon-btn { background: none; border: none; color: var(--stc-muted); cursor: pointer; padding: 0 2px; font-size: 12px; line-height: 1; }
-    .stc-icon-btn:hover { color: var(--stc-text); }
-    .stc-unread { margin-left: 4px; padding: 0 6px; border-radius: 9999px; background: var(--stc-bad); color: #fff; font-size: 10px; font-weight: 700; }
-    .stc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #737373; flex: none; }
-    .stc-dot.ready { background: var(--stc-ready); box-shadow: 0 0 6px var(--stc-ready); }
-    .stc-dot.wait { background: var(--stc-warn); }
-    .stc-dot.blocked { background: var(--stc-bad); }
 
-    /* Companion block in the game's left menu */
-    .stc-side { margin: 0 0 18px; padding: 0 4px; font-size: 12px; line-height: 1.5; color: var(--stc-text); }
-    .stc-side-head { display: flex; align-items: center; justify-content: space-between; }
-    .stc-side-head .stc-tools { display: flex; gap: 6px; align-items: center; }
-    .stc-side-box { margin: 0 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--stc-border); background: rgba(255,255,255,.02); }
-    .stc-side .stc-row { padding: 1px 0; }
-    .stc-side .stc-name { display: inline-flex; align-items: center; gap: 4px; }
-    .stc-side .stc-bell { opacity: 0; transition: opacity .15s; }
-    .stc-side .stc-row:hover .stc-bell, .stc-side .stc-bell.off { opacity: .8; }
-    .stc-side .stc-new > span:first-child::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px;
-      border-radius: 50%; background: var(--stc-accent); vertical-align: middle; }
-    .stc-side-new { margin: 0; padding: 0 1.5rem 0 1rem; font-size: 13px; flex: none; }
-    .stc-side-new .stc-side-box { max-height: 55vh; overflow-y: auto; }
-    .stc-rows-pick { margin: 6px 0 4px; }
-    .stc-rows-pick summary { cursor: pointer; padding: 4px 0; }
-    .stc-rows-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin-top: 6px; }
-    .stc-rows-grid label { display: flex !important; align-items: center; gap: 6px; justify-content: flex-start !important; }
-    .stc-side-new .stc-side-head { cursor: default; }
-    .stc-side-new .stc-side-fold { cursor: pointer; flex: 1; }
-    .stc-side-new .stc-side-chevron { cursor: pointer; display: inline-flex; transition: transform .15s; }
-    .stc-side-new .stc-side-chevron svg { width: 16px; height: 16px; }
-    .stc-side-new .stc-side-box { margin: 8px 0 0; }
-    .stc-side .stc-sep { height: 1px; background: var(--stc-border); margin: 6px 0; }
-    .stc-badge { min-width: 16px; padding: 0 5px; border-radius: 9999px; background: var(--stc-accent-strong); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
-    .stc-when { cursor: pointer; }
-    .stc-when:hover { text-decoration: underline dotted; }
-    .stc-planner select, .stc-planner input[type=time] { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--stc-border);
-      background: #0a0a0a; color: var(--stc-text); font: inherit; font-size: 13px; }
-    html:not(.dark) .stc-planner select, html:not(.dark) .stc-planner input[type=time] { background: #fff; }
-    .stc-plan-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--stc-border); align-items: baseline; }
-    .stc-plan-row:first-child { border-top: none; }
-    .stc-plan-row b { font-size: 15px; }
-    .stc-plan-row { grid-template-columns: 1.1fr 1fr 1fr 1fr auto; }
-    .stc-plan-row[data-plan-pick] { cursor: pointer; border-radius: 6px; padding-left: 6px; padding-right: 6px; }
-    .stc-plan-row[data-plan-pick]:hover { background: var(--stc-hover, rgba(99,102,241,.08)); }
-    .stc-plan-off { opacity: .6; }
-    .stc-plan-use { color: #6366f1; font-size: 12px; font-weight: 600; align-self: center; }
-    .stc-plan-toggle { width: 100%; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; text-align: left; }
-    .stc-quest-top { display: block; width: 100%; text-align: left; background: none; border: 1px solid var(--stc-border); border-radius: 8px; padding: 10px; cursor: pointer; color: inherit; font: inherit; }
-    .stc-quest-top:hover { background: var(--stc-hover, rgba(99,102,241,.08)); }
-    .stc-quest-top .stc-bar { display: block; margin: 6px 0; }
-    .stc-quest-top .stc-bar span { background: var(--stc-accent); border-radius: 3px; }
-    .stc-craft { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--stc-accent-strong); border-radius: 8px; font-size: 12px; color: var(--stc-text); background: rgba(99,102,241,.06); }
-    .stc-craft-title { font-size: 11px; font-weight: 600; color: var(--stc-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
-    .stc-craft .stc-row { padding: 2px 0; gap: 8px; }
-    .stc-craft input[type=number] { width: 52px; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 4px; padding: 1px 4px; font: inherit; }
-    .stc-craft-fill { margin-left: 6px; padding: 1px 6px !important; border: 1px solid var(--stc-border) !important; border-radius: 4px; font-size: 11px !important; }
-    .stc-seg { display: inline-flex; border: 1px solid var(--stc-border); border-radius: 6px; overflow: hidden; }
-    .stc-seg button { background: none; border: 0; padding: 4px 10px; font: inherit; font-size: 12px; color: var(--stc-muted); cursor: pointer; }
-    .stc-seg button + button { border-left: 1px solid var(--stc-border); }
-    .stc-seg button.on { background: var(--stc-accent); color: #fff; }
-    .stc-flash { outline: 3px solid #6366f1 !important; outline-offset: 2px; border-radius: 8px; transition: outline-color .3s; }
-    .stc-points { cursor: pointer; border-bottom: 1px dashed transparent; }
-    .stc-points:hover { border-bottom-color: var(--stc-muted); }
-    .stc-target-edit { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
-    .stc-target-edit input { width: 52px; padding: 1px 4px; font-size: 12px; border-radius: 4px; border: 1px solid var(--stc-border); background: #0a0a0a; color: var(--stc-text); }
-    .stc-target-edit button { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--stc-border); background: #1f1f1f; color: var(--stc-text); cursor: pointer; }
+  // Styles are loaded via manifest.json -> styles.css (declared in content_scripts css)
 
-    /* Cards placed on the game's pages */
-    .stc-card { margin-top: 12px; font-size: 13px; line-height: 1.5; }
-    #stc-page-card { margin: 0 0 16px; }
-    .stc-card-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .stc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 24px; }
-    .stc-section-title { margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: #737373; }
-    .stc-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .stc-card button[disabled] { opacity: .45; cursor: default; }
-    .stc-rarity-chip { display: inline-block; padding: 0 8px; margin: 2px 4px 2px 0; border-radius: 9999px; background: var(--stc-track); font-size: 12px; }
-
-    /* Strip on the Travel page, with the session details dropdown */
-    /* No stacking level of its own, so the game's menus (level 20) open over the bar. The dropdown sits at 15:
-       above the travel scene (level 10), below the game's menus. */
-    .stc-strip-wrap { position: relative; }
-    .stc-strip .stc-strip-items { display: contents; }
-    .stc-details-btn { margin-left: auto; padding: 2px 10px; border-radius: 6px; border: 1px solid var(--stc-border);
-      background: transparent; color: var(--stc-text); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
-    .stc-details-btn:hover { background: var(--stc-track); }
-    .stc-strip-wrap.open .stc-details-btn { border-color: var(--stc-accent); }
-    .stc-dropdown { display: none; position: absolute; z-index: 15; right: 0; top: calc(100% + 6px); width: 300px; max-height: 72vh; overflow: auto;
-      margin: 0; font-size: 12px; line-height: 1.45; box-shadow: 0 16px 40px rgba(0,0,0,.55); }
-    .stc-dropdown .stc-btns { margin-top: 8px; }
-    .stc-dropdown .stc-btns button { font-size: 12px; padding: 6px 10px; }
-    .stc-strip-wrap.open .stc-dropdown { display: block; }
-    .stc-grid-1 { grid-template-columns: 1fr; gap: 14px; }
-    /* Strip on the Travel page */
-    .stc-strip { margin: 8px 0 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--stc-border); background: var(--stc-card);
-      color: var(--stc-text); font-size: 13px; line-height: 1.5; display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; }
-    .stc-strip b { font-weight: 600; color: #fff; }
-    .stc-strip .stc-bar { width: 120px; display: inline-block; vertical-align: middle; margin: 0 6px; }
-    .stc-chip { display: inline-block; padding: 0 6px; margin: 1px 2px 1px 0; border-radius: 9999px; background: var(--stc-track); font-size: 11px; }
-
-    /* Collection badges on item rows */
-    .stc-coll { margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: 10px; font-weight: 700; vertical-align: middle; }
-    .stc-blocked { opacity: .35 !important; pointer-events: none !important; cursor: not-allowed !important; filter: grayscale(1); }
-    .stc-give-note { display: inline-block; margin-left: 6px; font-size: 11px; color: var(--stc-warn); white-space: nowrap; }
-    .stc-give-note a { color: inherit; text-decoration: underline; }
-    .stc-coll.new { background: var(--stc-accent-strong); color: #fff; }
-
-    /* Sessions manager (same look as the settings window) */
-    #stc-guild { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
-    #stc-guild.open { display: flex; }
-    #stc-guild .stc-win { width: min(460px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
-      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
-    #stc-guild .stc-win-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
-      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
-    #stc-guild .stc-win-body { padding: 8px 16px 16px; }
-    .stc-req-form { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
-    .stc-req-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--stc-muted); }
-    .stc-req-form select, .stc-req-item select, .stc-req-item input { background: var(--stc-card); color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 3px 6px; font: inherit; }
-    .stc-req-item input { width: 90px; }
-    #stc-guild a, .stc-guild-card a { color: var(--stc-accent); }
-    .stc-req-item { margin-top: 6px; }
-    .stc-pvp { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,.08); color: var(--stc-muted); }
-    .stc-pvp.good { background: rgba(34,197,94,.18); color: #22c55e; }
-    .stc-pvp.mid { background: rgba(245,158,11,.18); color: #f59e0b; }
-    .stc-pvp.bad { background: rgba(239,68,68,.18); color: #ef4444; }
-    #stc-sessions { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
-    #stc-sessions.open { display: flex; }
-    #stc-sessions .stc-win { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
-      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
-    #stc-sessions .stc-win-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
-      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
-    #stc-sessions .stc-win-body { padding: 8px 16px 16px; }
-    .stc-sess { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--stc-border); align-items: center; }
-    .stc-sess-tools { display: flex; gap: 6px; align-items: center; }
-    .stc-sess input[type=number] { width: 70px !important; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 3px 6px; }
-    .stc-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; margin: 8px 0; border: 1px solid var(--stc-border); border-radius: 8px; }
-    .stc-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--stc-muted); }
-    .stc-form input, #stc-sessions textarea { width: 100%; background: transparent; color: var(--stc-text); border: 1px solid var(--stc-border); border-radius: 6px; padding: 5px 7px; font: inherit; }
-    #stc-sessions textarea { min-height: 70px; resize: vertical; }
-
-    /* Settings window (styled like the game's own windows) */
-    #stc-settings { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center;
-      background: rgba(0,0,0,.6); padding: 6vh 12px; }
-    #stc-settings.open { display: flex; }
-    #stc-settings-box { width: min(560px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
-      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); font-size: 13px; }
-    #stc-settings-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
-      background: var(--stc-card); border-bottom: 1px solid var(--stc-border); font-weight: 600; font-size: 15px; z-index: 1; }
-    #stc-settings-body { padding: 4px 16px 16px; }
-    #stc-settings .stc-section-title { margin: 16px 0 6px; }
-    #stc-settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0; }
-    #stc-settings input[type=number] { width: 96px; }
-    #stc-settings input[type=password] { width: 100%; }
-    #stc-settings .stc-prof-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-    #stc-settings .stc-prof-grid input { width: 80px; }
-    .stc-ui input[type=number], .stc-ui input[type=password], #stc-settings input[type=number], #stc-settings input[type=password] {
-      padding: 4px 8px; border-radius: 6px; border: 1px solid var(--stc-border); background: #0a0a0a; color: var(--stc-text); font-size: 13px; }
-    /* The game restyles checkboxes and sliders; use the browser's own inside our UI. */
-    #stc-settings input[type=checkbox], .stc-ui input[type=checkbox] {
-      appearance: auto; -webkit-appearance: auto; width: 16px; height: 16px; flex: none; accent-color: var(--stc-accent); cursor: pointer; }
-    #stc-settings input[type=range] { appearance: none; -webkit-appearance: none; width: 160px; height: 16px; background: transparent; border: none; cursor: pointer; }
-    #stc-settings input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--stc-track); }
-    #stc-settings input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--stc-accent); }
-    #stc-settings input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--stc-track); }
-    #stc-settings input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--stc-accent); border: none; }
-
-    /* Small settings button, only on narrow screens where the game hides its left menu */
-    #stc-mobile-btn { position: fixed; left: 12px; bottom: 12px; z-index: 99994; width: 40px; height: 40px; border-radius: 9999px;
-      border: 1px solid var(--stc-border); background: var(--stc-card); color: var(--stc-text); font-size: 18px; cursor: pointer; display: none; }
-
-    /* Toasts */
-    #stc-toast { position: fixed; z-index: 100000; left: 50%; top: 76px; transform: translateX(-50%); max-width: 440px; padding: 10px 16px;
-      border-radius: 8px; background: var(--stc-card); color: var(--stc-text); border: 1px solid var(--stc-accent-strong);
-      box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 13px; display: none; }
-
-    /* Chat popup: Global and Private */
-    #stc-dock { position: fixed; top: 60px; right: 120px; width: 420px; height: 70vh; max-height: 680px; z-index: 99998;
-      display: none; flex-direction: column; background: var(--stc-card); border: 1px solid var(--stc-border); border-radius: 8px;
-      box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; font-size: 13px; color: var(--stc-text); }
-    #stc-dock.open { display: flex; }
-    #stc-dock-head { display: flex; align-items: stretch; height: 40px; flex: none; border-bottom: 1px solid var(--stc-border); }
-    #stc-dock-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font: inherit; font-weight: 500; padding: 0 14px; }
-    #stc-dock-head button:hover { color: var(--stc-text); }
-    #stc-dock-head button.active { color: var(--stc-text); box-shadow: inset 0 -2px 0 var(--stc-accent); }
-    #stc-dock-head .stc-dock-close { margin-left: auto; font-size: 16px; }
-    #stc-dock-head #stc-dock-back { color: #a5b4fc; padding: 0 10px; border-right: 1px solid var(--stc-border); }
-    #stc-dock-body { position: relative; flex: 1; }
-    #stc-dock-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
-    #stc-dock-hint { padding: 16px; color: var(--stc-muted); }
-
-    /* Game pages in a large popup over the Travel page */
-    #stc-page-pop { position: fixed; inset: 0; z-index: 99990; display: none; align-items: center; justify-content: center;
-      background: rgba(0,0,0,.6); font-size: 13px; color: var(--stc-text); }
-    #stc-page-pop.open { display: flex; }
-    #stc-page-box { width: min(1100px, 92vw); height: 86vh; display: flex; flex-direction: column; background: var(--stc-card);
-      border: 1px solid var(--stc-border); border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; }
-    #stc-page-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--stc-border); flex: none; }
-    #stc-page-title { font-weight: 600; flex: 1; }
-    #stc-page-head a { color: #a5b4fc; font-size: 12px; text-decoration: none; }
-    #stc-page-head a:hover { text-decoration: underline; }
-    #stc-page-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 18px; }
-    #stc-page-body { position: relative; flex: 1; }
-    #stc-page-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
-
-    /* Notifications popup under the bell */
-    #stc-notes { position: fixed; top: 60px; right: 80px; width: 420px; height: 70vh; max-height: 640px; z-index: 99998;
-      display: none; flex-direction: column; background: var(--stc-card); border: 1px solid var(--stc-border); border-radius: 8px;
-      box-shadow: 0 20px 50px rgba(0,0,0,.6); overflow: hidden; font-size: 13px; color: var(--stc-text); }
-    #stc-notes.open { display: flex; }
-    #stc-notes-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px;
-      border-bottom: 1px solid var(--stc-border); font-weight: 600; flex: none; }
-    #stc-notes-head a { color: #a5b4fc; font-weight: 400; font-size: 12px; margin-right: 10px; text-decoration: none; }
-    #stc-notes-head a:hover { text-decoration: underline; }
-    #stc-notes-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 16px; }
-    #stc-notes-body { position: relative; flex: 1; }
-    #stc-notes-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
-  `;
-  document.head.appendChild(style);
-
-  const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
   const link = (name, page) => '<a href="' + page + '">' + name + '</a>';
 
   // The game's own style classes (it uses Tailwind), so our parts look like the rest of the site.
@@ -4377,4 +5776,844 @@
     checkMessages();
     autoScanCollection();
   }, 2000);
+})();
+
+;
+
+// ===========================================================================
+// 3. sidebar-ui.js
+// ===========================================================================
+
+;
+/* Extension-only toolbar presentation; existing event handlers remain in control. */
+(() => {
+  'use strict';
+  const icons = [
+    ['data-dock-toggle', 'Open chat (Alt+M)', '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>'],
+    ['data-guild-toggle', 'Guild requirements', '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/>'],
+    ['data-open-hub', 'Open SimpleMMO Hub', '<path d="M4 20h16M6 16v-5m6 5V4m6 12V8"/>'],
+    ['data-open-settings', 'Companion settings (Alt+C)', '<path d="M9.5 3h5l.7 2.5 2 .9 2.3-.7 2.5 4.3-1.7 1.8v2.4l1.7 1.8-2.5 4.3-2.3-.7-2 .9-.7 2.5h-5l-.7-2.5-2-.9-2.3.7L2 16l1.7-1.8v-2.4L2 10l2.5-4.3 2.3.7 2-.9L9.5 3Z" transform="translate(0 -1) scale(1 .95)"/><circle cx="12" cy="12" r="3"/>']
+  ];
+  function decorate(side) {
+    for (const [attribute, label, drawing] of icons) {
+      const button = side.querySelector('.stc-tools [' + attribute + ']');
+      if (!button || button.dataset.stcIcon === '1') continue;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + drawing + '</svg>';
+      button.dataset.stcIcon = '1';
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      button.type = 'button';
+    }
+    side.querySelectorAll('[data-side-fold]').forEach(control => {
+      if (control.dataset.stcKeyboard === '1') return;
+      control.dataset.stcKeyboard = '1';
+      control.tabIndex = 0;
+      control.setAttribute('aria-label', 'Toggle Companion section');
+      control.addEventListener('keydown', event => {
+        if (event.target !== control || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        control.click();
+      });
+    });
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.matches('.stc-side')) decorate(node);
+    else node.querySelectorAll('.stc-side').forEach(decorate);
+  }
+  document.querySelectorAll('.stc-side').forEach(decorate);
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) inspect(node);
+    }
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+  window.addEventListener('pagehide', () => observer.disconnect(), {once: true});
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    document.querySelectorAll('.stc-side').forEach(decorate);
+    observer.observe(document.body, {childList: true, subtree: true});
+  });
+})();
+
+;
+
+// ===========================================================================
+// 4. native-boosts.js
+// ===========================================================================
+
+;
+/* Move original controls, not clones. Retain Alpine scope and native handlers. */
+(() => {
+  'use strict';
+  if (!location.pathname.startsWith('/travel')) return;
+  let active = null;
+  let frame = 0;
+  let warned = false;
+  function findNativeRow() {
+    const root = document.getElementById('complete-travel-container');
+    if (!root) return null;
+    for (const template of root.querySelectorAll('template[x-for]')) {
+      if (template.closest('.stc-ui')) continue;
+      if (!/^boost\s+in\s+boosts$/.test((template.getAttribute('x-for') || '').trim())) continue;
+      const row = template.parentElement;
+      if (row && row.querySelector('button[x-show]') && row.querySelector('[x-text="boost.name"]')) return row;
+    }
+    return null;
+  }
+  function restore(A) {
+    const old = active;
+    if (!old) return;
+    A.mutateDom(() => {
+      if (old.anchor.isConnected) old.anchor.replaceWith(old.row);
+      else old.row.remove();
+      old.row.classList.remove('stc-native-boosts-row');
+      old.undoScope();
+      old.slot.remove();
+    });
+    active = null;
+  }
+  function reconcile() {
+    frame = 0;
+    const A = window.Alpine;
+    if (!A || typeof A.mutateDom !== 'function' || typeof A.addScopeToNode !== 'function') {
+      if (!warned) {
+        console.info('[SMMO Companion] Native boosts left in place: Alpine relocation helpers unavailable.');
+        warned = true;
+      }
+      return;
+    }
+    const strip = document.querySelector('.stc-strip-wrap .stc-strip');
+    if (active) {
+      if (!strip || !active.anchor.isConnected || !active.row.isConnected || active.slot.parentElement !== strip) restore(A);
+      else {
+        const replacement = findNativeRow();
+        if (!replacement) return;
+        /* If the game rebuilt its native row, prefer the fresh controls. */
+        const old = active;
+        A.mutateDom(() => {
+          if (typeof A.destroyTree === 'function') A.destroyTree(old.row);
+          old.row.remove();
+          old.anchor.remove();
+          old.undoScope();
+          old.slot.remove();
+        });
+        active = null;
+      }
+    }
+    if (!strip) return;
+    const row = findNativeRow();
+    if (!row) return;
+    /* Wait until Alpine has initialized the loop's rendered controls. */
+    if (![...row.children].some(el => el.hasAttribute('x-data') && el._x_dataStack)) return;
+    const parent = row.parentElement;
+    const anchor = document.createComment('SMMO Companion: native boost position');
+    const slot = document.createElement('div');
+    slot.className = 'stc-native-boosts-slot';
+    let undoScope;
+    try {
+      A.mutateDom(() => {
+        undoScope = A.addScopeToNode(row, {}, parent);
+        parent.insertBefore(anchor, row);
+        strip.appendChild(slot);
+        row.classList.add('stc-native-boosts-row');
+        slot.appendChild(row);
+      });
+      active = {row, anchor, slot, undoScope};
+    } catch (error) {
+      A.mutateDom(() => {
+        if (anchor.isConnected) anchor.replaceWith(row);
+        row.classList.remove('stc-native-boosts-row');
+        if (typeof undoScope === 'function') undoScope();
+        slot.remove();
+      });
+      console.warn('[SMMO Companion] Boost relocation failed; native controls left in place.', error);
+    }
+  }
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(reconcile);
+  }
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {childList: true, subtree: true});
+  schedule();
+  window.addEventListener('pagehide', () => {
+    observer.disconnect();
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+  });
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    observer.observe(document.body, {childList: true, subtree: true});
+    schedule();
+  });
+})();
+
+;
+
+// ===========================================================================
+// 5. native-raid.js
+// ===========================================================================
+
+;
+/* Relocate the original Guild Raid node; the game owns its data and countdown. */
+(() => {
+  'use strict';
+  if (!location.pathname.startsWith('/travel')) return;
+  let active = null;
+  let frame = 0;
+  function nativeRaid() {
+    const root = document.getElementById('complete-travel-container');
+    if (!root) return null;
+    return [...root.querySelectorAll('[x-show="guild.raid"]')].find(el => !el.closest('.stc-ui')) || null;
+  }
+  function restore(A) {
+    const old = active;
+    A.mutateDom(() => {
+      if (old.anchor.isConnected) old.anchor.replaceWith(old.row);
+      else old.row.remove();
+      old.row.classList.remove('stc-native-raid');
+      old.undoScope();
+      if (old.fallback) old.fallback.remove();
+    });
+    active = null;
+  }
+  function reconcile() {
+    frame = 0;
+    const A = window.Alpine;
+    if (!A || typeof A.mutateDom !== 'function' || typeof A.addScopeToNode !== 'function') return;
+    const strip = document.querySelector('.stc-strip-wrap .stc-strip');
+    if (active && (!strip || !active.anchor.isConnected || !active.row.isConnected || !strip.contains(active.row))) restore(A);
+    if (!strip) return;
+    if (active) {
+      const boosts = strip.querySelector('.stc-native-boosts-slot');
+      if (boosts && active.row.parentElement !== boosts) {
+        A.mutateDom(() => {
+          boosts.appendChild(active.row);
+          if (active.fallback) active.fallback.remove();
+        });
+        active.fallback = null;
+      }
+      return;
+    }
+    const row = nativeRaid();
+    if (!row) return;
+    /* Do not move a component before Alpine has initialized its bindings. */
+    if (!row._x_effects) return;
+    const parent = row.parentElement;
+    const anchor = document.createComment('SMMO Companion: native raid position');
+    let target = strip.querySelector('.stc-native-boosts-slot');
+    const fallback = target ? null : document.createElement('div');
+    if (fallback) { fallback.className = 'stc-native-raid-slot'; target = fallback; }
+    let undoScope;
+    try {
+      A.mutateDom(() => {
+        undoScope = A.addScopeToNode(row, {}, parent);
+        parent.insertBefore(anchor, row);
+        if (fallback) strip.appendChild(fallback);
+        row.classList.add('stc-native-raid');
+        target.appendChild(row);
+      });
+      active = {row, anchor, undoScope, fallback};
+    } catch (error) {
+      A.mutateDom(() => {
+        if (anchor.isConnected) anchor.replaceWith(row);
+        row.classList.remove('stc-native-raid');
+        if (typeof undoScope === 'function') undoScope();
+        if (fallback) fallback.remove();
+      });
+      console.warn('[SMMO Companion] Guild Raid left in its original position.', error);
+    }
+  }
+  function schedule() { if (!frame) frame = requestAnimationFrame(reconcile); }
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.body, {childList: true, subtree: true});
+  schedule();
+  window.addEventListener('pagehide', () => {
+    observer.disconnect();
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+  });
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    observer.observe(document.body, {childList: true, subtree: true});
+    schedule();
+  });
+})();
+
+;
+
+// ===========================================================================
+// 6. session-details.js
+// ===========================================================================
+
+;
+/* Reorganize stable UI nodes; generated rendering and click handlers remain intact. */
+(() => {
+  'use strict';
+  function enhance(card) {
+    if (card.dataset.stcSessionUi === '1') return;
+    const grid = card.querySelector('.stc-grid-1');
+    const header = card.firstElementChild;
+    const time = card.querySelector('[data-w="time"]');
+    const metricValues = ['steps', 'exp', 'gold'].map(name => card.querySelector('[data-w="' + name + '"]'));
+    if (!grid || !header || !time || metricValues.some(value => !value)) return;
+    const metricRows = metricValues.map(value => value.closest('.stc-row'));
+    if (metricRows.some(row => !row)) return;
+    card.dataset.stcSessionUi = '1';
+    header.classList.add('stc-session-heading');
+    const state = header.querySelector('[data-w="status"]');
+    if (state && state.parentElement) state.parentElement.classList.add('stc-session-state');
+    const title = document.createElement('h2');
+    title.className = 'stc-session-title';
+    title.textContent = 'Session details';
+    header.prepend(title);
+    const metrics = document.createElement('div');
+    metrics.className = 'stc-session-metrics';
+    const timeRow = time.closest('.stc-row');
+    timeRow.after(metrics);
+    metricRows.forEach(row => metrics.appendChild(row));
+    const history = card.querySelector('[data-w="history"]');
+    if (history) {
+      const section = history.parentElement;
+      const heading = section.querySelector('.stc-section-title');
+      if (heading) {
+        const details = document.createElement('details');
+        details.className = 'stc-session-history';
+        const summary = document.createElement('summary');
+        while (heading.firstChild) summary.appendChild(heading.firstChild);
+        summary.addEventListener('click', event => {
+          if (event.target.closest('button')) event.preventDefault();
+        });
+        details.appendChild(summary);
+        details.appendChild(history);
+        heading.replaceWith(details);
+      }
+    }
+    const toggle = document.querySelector('.stc-strip [data-toggle-details]');
+    if (toggle) toggle.setAttribute('aria-controls', 'stc-walk');
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.id === 'stc-walk') enhance(node);
+    else node.querySelectorAll('#stc-walk').forEach(enhance);
+  }
+  document.querySelectorAll('#stc-walk').forEach(enhance);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+  window.addEventListener('pagehide', () => observer.disconnect());
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    document.querySelectorAll('#stc-walk').forEach(enhance);
+    observer.observe(document.body, {childList: true, subtree: true});
+  });
+})();
+
+;
+
+// ===========================================================================
+// 7. settings-ui.js
+// ===========================================================================
+
+;
+/* Enhance settings presentation without replacing inputs or their handlers. */
+(() => {
+  'use strict';
+  const style = document.createElement('style');
+  style.textContent = `
+#stc-settings .stc-settings-nav button[aria-current="location"] { background: var(--stc-settings-inset); color: var(--stc-settings-fg); box-shadow: inset 3px 0 #818cf8; font-weight: 600; }
+#stc-settings .stc-settings-section { padding: 16px; border: 1px solid var(--stc-settings-line); border-radius: 7px; background: var(--stc-settings-bg); }
+#stc-settings .stc-settings-section + .stc-settings-section { margin-top: 14px; padding-top: 16px; }
+#stc-settings .stc-settings-section > .stc-section-title { padding-bottom: 10px; border-bottom: 1px solid var(--stc-settings-line); margin-bottom: 10px; }
+#stc-settings .stc-settings-section > label { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
+#stc-settings .stc-settings-section > label + label { border-top: 1px solid var(--stc-settings-line); }
+#stc-settings input[type=number] { font-variant-numeric: tabular-nums; }
+#stc-settings input[type=checkbox] { appearance: auto; width: 16px; height: 16px; }
+#stc-settings input[type=range] { accent-color: #6366f1; }
+#stc-settings .stc-prof-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 16px; }
+#stc-settings .stc-prof-grid label { display: flex; align-items: center; justify-content: space-between; min-width: 0; min-height: 36px; }
+#stc-settings .stc-btns { flex-wrap: wrap; }
+@media (max-width: 640px) {
+ #stc-settings .stc-settings-nav button[aria-current="location"] { box-shadow: inset 0 -2px #818cf8; }
+ #stc-settings .stc-settings-section { padding: 12px; }
+ #stc-settings .stc-settings-section + .stc-settings-section { padding-top: 12px; }
+ #stc-settings .stc-prof-grid { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 400px) {
+ #stc-settings .stc-settings-section > label { flex-wrap: wrap; }
+ #stc-settings input[type=number] { flex-basis: 80px; width: 80px; }
+}
+`;
+  document.head.appendChild(style);
+  function enhance(win) {
+    const body = win.querySelector('#stc-settings-body');
+    if (!body || body.dataset.stcSettingsUi === '1') return;
+    const nodes = [...body.childNodes];
+    if (!nodes.some(node => node instanceof Element && node.classList.contains('stc-section-title'))) return;
+    const nav = document.createElement('nav');
+    nav.className = 'stc-settings-nav';
+    nav.setAttribute('aria-label', 'Settings sections');
+    const content = document.createElement('div');
+    content.className = 'stc-settings-content';
+    const entries = [];
+    function select(button) {
+      for (const entry of entries) {
+        if (entry.button === button) entry.button.setAttribute('aria-current', 'location');
+        else entry.button.removeAttribute('aria-current');
+      }
+    }
+    let section = null;
+    let index = 0;
+    for (const node of nodes) {
+      if (node instanceof Element && node.classList.contains('stc-section-title')) {
+        section = document.createElement('section');
+        section.className = 'stc-settings-section';
+        section.id = 'stc-settings-section-' + (++index);
+        if (!node.id) node.id = 'stc-settings-heading-' + index;
+        node.setAttribute('role', 'heading');
+        node.setAttribute('aria-level', '2');
+        node.tabIndex = -1;
+        section.setAttribute('aria-labelledby', node.id);
+        content.appendChild(section);
+        const target = section;
+        const heading = node;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = node.textContent.trim();
+        button.setAttribute('aria-controls', section.id);
+        button.addEventListener('click', () => {
+          heading.focus({preventScroll: true});
+          target.scrollIntoView({block: 'start', behavior: 'auto'});
+          select(button);
+        });
+        entries.push({section, button});
+        nav.appendChild(button);
+      }
+      (section || content).appendChild(node);
+    }
+    body.append(nav, content);
+    body.classList.add('stc-settings-layout');
+    body.dataset.stcSettingsUi = '1';
+    const box = win.querySelector('#stc-settings-box');
+    function syncNavigation() {
+      if (!entries.length || !box || !box.getClientRects().length) return;
+      const head = win.querySelector('#stc-settings-head');
+      const threshold = box.getBoundingClientRect().top + (head ? head.getBoundingClientRect().height : 52) + 24;
+      let current = entries[0];
+      for (const entry of entries) {
+        if (entry.section.getBoundingClientRect().top <= threshold) current = entry;
+      }
+      if (box.scrollTop > 0 && Math.ceil(box.scrollTop + box.clientHeight) >= box.scrollHeight - 2) current = entries[entries.length - 1];
+      select(current.button);
+    }
+    if (entries.length) select(entries[0].button);
+    if (box) box.addEventListener('scroll', syncNavigation, {passive: true});
+    const status = win.querySelector('#stc-api-status');
+    if (status) { status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); }
+    const key = win.querySelector('#stc-key');
+    if (key && !key.labels.length && !key.hasAttribute('aria-label')) key.setAttribute('aria-label', 'SimpleMMO public API key');
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.id === 'stc-settings') enhance(node);
+    else node.querySelectorAll('#stc-settings').forEach(enhance);
+  }
+  document.querySelectorAll('#stc-settings').forEach(enhance);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+  window.addEventListener('pagehide', () => observer.disconnect());
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    document.querySelectorAll('#stc-settings').forEach(enhance);
+    observer.observe(document.body, {childList: true, subtree: true});
+  });
+})();
+
+;
+
+// ===========================================================================
+// 8. sessions-ui.js
+// ===========================================================================
+
+;
+/* Improve the existing Sessions manager without changing its data or handlers. */
+(() => {
+  'use strict';
+  function enhance(win) {
+    if (!win || win.dataset.stcSessionsUi === '1') return;
+    win.setAttribute('role', 'dialog');
+    win.setAttribute('aria-modal', 'true');
+    win.setAttribute('aria-label', 'Sessions');
+    const head = win.querySelector('.stc-win-head');
+    if (head && !head.querySelector('.stc-sess-count')) {
+      const count = document.createElement('div');
+      count.className = 'stc-sess-count';
+      count.setAttribute('aria-live', 'polite');
+      head.appendChild(count);
+    }
+    win.dataset.stcSessionsUi = '1';
+    update(win);
+  }
+  function update(win) {
+    const count = win.querySelector('.stc-sess-count');
+    const rows = win.querySelectorAll('.stc-sess');
+    if (count) count.textContent = rows.length ? rows.length + (rows.length === 1 ? ' session' : ' sessions') + ' saved' : 'No sessions yet';
+    rows.forEach(row => {
+      const input = row.querySelector('.stc-sess-minutes');
+      if (input && !input.hasAttribute('aria-label')) input.setAttribute('aria-label', 'Session duration in minutes');
+    });
+  }
+  function watch(win) {
+    const list = win.querySelector('[data-sess-list]');
+    if (!list || list.dataset.stcSessionsWatch === '1') return;
+    list.dataset.stcSessionsWatch = '1';
+    new MutationObserver(() => update(win)).observe(list, {childList: true, subtree: true});
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.id === 'stc-sessions') { enhance(node); watch(node); }
+    else node.querySelectorAll('#stc-sessions').forEach(el => { enhance(el); watch(el); });
+  }
+  document.querySelectorAll('#stc-sessions').forEach(el => { enhance(el); watch(el); });
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+  window.addEventListener('pagehide', () => observer.disconnect());
+})();
+
+;
+
+// ===========================================================================
+// 9. guild-ui.js
+// ===========================================================================
+
+;
+/* Improve the existing Guild requirements window without changing its data or handlers. */
+(() => {
+  'use strict';
+  function enhance(win) {
+    if (!win || win.dataset.stcGuildUi === '1') return;
+    win.setAttribute('role', 'dialog');
+    win.setAttribute('aria-modal', 'true');
+    win.setAttribute('aria-label', 'Guild requirements');
+    const close = win.querySelector('[data-close-guild]');
+    if (close && !close.hasAttribute('aria-label')) close.setAttribute('aria-label', 'Close guild requirements');
+    win.querySelectorAll('.stc-req-item').forEach(row => {
+      const select = row.querySelector('select');
+      const input = row.querySelector('input');
+      const remove = row.querySelector('[data-req-remove]');
+      if (select && !select.hasAttribute('aria-label')) select.setAttribute('aria-label', 'Requirement type');
+      if (input && !input.hasAttribute('aria-label')) input.setAttribute('aria-label', 'Required amount');
+      if (remove && !remove.hasAttribute('aria-label')) remove.setAttribute('aria-label', 'Remove requirement');
+    });
+    win.dataset.stcGuildUi = '1';
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.id === 'stc-guild') enhance(node);
+    else node.querySelectorAll('#stc-guild').forEach(enhance);
+  }
+  document.querySelectorAll('#stc-guild').forEach(enhance);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+  window.addEventListener('pagehide', () => observer.disconnect());
+})();
+
+;
+
+// ===========================================================================
+// 10. dock-ui.js
+// ===========================================================================
+
+;
+/* Chat popup presentation; existing chat actions remain game-owned. */
+(() => {
+  'use strict';
+  const docks = new WeakSet();
+  const frames = new WeakSet();
+  const privateRoute = path => path === '/chat/private' || path.startsWith('/chat/private/');
+  const css = document.createElement('style');
+  css.textContent = `
+    #stc-dock #stc-dock-head { align-items: center; }
+    #stc-dock #stc-dock-head [data-dock-tab], #stc-dock #stc-dock-back { align-self: stretch; }
+    #stc-dock #stc-dock-head .stc-dock-close { flex: 0 0 28px; width: 28px; min-width: 28px; height: 28px; min-height: 28px; margin-left: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; }
+    #stc-dock #stc-dock-head .stc-dock-close:hover { background: rgba(239,68,68,.15); color: var(--stc-bad); }
+    #stc-dock-full { margin-left: auto; margin-right: 8px; flex-shrink: 0; font-size: 12px; color: var(--stc-accent); text-decoration: none; }
+    #stc-dock-full:hover { text-decoration: underline; }
+    #stc-dock-full[hidden] { display: none; }
+    #stc-dock #stc-dock-head:has(#stc-dock-full[hidden]) .stc-dock-close { margin-left: auto; }
+    #stc-dock-full:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+  `;
+  document.head.appendChild(css);
+  function syncLink(dock) {
+    const link = dock.querySelector('#stc-dock-full');
+    if (!link) return;
+    link.hidden = !dock.querySelector('[data-dock-tab="private"].active');
+    let address = '/messages/view/chat';
+    for (const frame of dock.querySelectorAll('iframe')) {
+      try {
+        const url = new URL(frame.contentWindow.location.href);
+        if (url.origin === location.origin && (url.pathname.startsWith('/messages/') || privateRoute(url.pathname))) {
+          url.searchParams.delete('new_page');
+          address = url.pathname + url.search + url.hash;
+        }
+      } catch (_) { /* Use the chat-list fallback. */ }
+    }
+    if (link.getAttribute('href') !== address) link.setAttribute('href', address);
+  }
+  function fitPrivate(frame) {
+    try {
+      const doc = frame.contentDocument;
+      const path = frame.contentWindow.location.pathname;
+      const chat = doc && doc.getElementById('smmo-chat');
+      if (!(privateRoute(path) || path.startsWith('/messages/')) || !chat || doc.getElementById('stc-private-fit')) return;
+      const crumb = doc.querySelector('nav[aria-label="Breadcrumb"]');
+      if (crumb) {
+        let wrapper = crumb;
+        while (wrapper.parentElement && !wrapper.parentElement.contains(chat)) wrapper = wrapper.parentElement;
+        wrapper.remove();
+      }
+      const sheet = doc.createElement('style');
+      sheet.id = 'stc-private-fit';
+      sheet.textContent = `
+        html, body { height: 100%; margin: 0; overflow: hidden; }
+        .stc-private-layout { display: flex; flex-direction: column; min-height: 0; height: 100%; flex: 1 1 0; padding-top: 0 !important; padding-bottom: 0 !important; margin-top: 0 !important; }
+        main.stc-private-layout { overflow: hidden !important; }
+        #smmo-chat { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; height: 100%; max-width: none; width: 100%; margin: 0; padding-bottom: 0; border: 0; box-shadow: none; box-sizing: border-box; }
+        #smmo-chat > .relative.flex.flex-col { min-height: 0 !important; max-height: none !important; height: 100%; flex: 1 1 0; overflow: hidden; }
+        #smmo-chat > .relative.flex.flex-col > .flex-grow.relative { min-height: 0; flex: 1 1 0; padding-left: 10px; padding-right: 10px; }
+        #chat-container { min-height: 0; overflow-y: auto !important; scrollbar-width: thin; padding-right: 4px; }
+        #smmo-chat .chat-message > .flex > .flex-col { min-width: 0; max-width: calc(100% - 48px); }
+        #smmo-chat .chat-message > .flex > .flex-shrink-0 { width: 36px; height: 36px; }
+        #smmo-chat .chat-message { margin-top: 6px; margin-bottom: 6px; }
+        #smmo-chat > .relative.flex.flex-col > .flex-shrink-0:last-child { padding: 8px 10px; border-top: 1px solid rgba(128,128,128,.2); }
+        #chat_input { min-height: 56px !important; max-height: 140px !important; box-sizing: border-box; font-size: 12px; overflow-y: auto; }
+      `;
+      doc.head.appendChild(sheet);
+      for (let node = chat.parentElement; node && node !== doc.body; node = node.parentElement) {
+        node.classList.add('stc-private-layout');
+        if (node.tagName === 'MAIN') break;
+      }
+    } catch (_) { /* Leave unreadable frames unchanged. */ }
+  }
+  function watchFrame(frame) {
+    if (frames.has(frame)) return;
+    frames.add(frame);
+    const loaded = () => {
+      fitPrivate(frame);
+      const dock = frame.closest('#stc-dock');
+      if (dock) syncLink(dock);
+    };
+    frame.addEventListener('load', loaded);
+    loaded();
+  }
+  function enhance(dock) {
+    if (docks.has(dock)) return;
+    const head = dock.querySelector('#stc-dock-head');
+    const close = dock.querySelector('.stc-dock-close');
+    if (!head || !close) return;
+    docks.add(dock);
+    dock.setAttribute('role', 'dialog');
+    dock.setAttribute('aria-label', 'Chat');
+    close.setAttribute('aria-label', 'Close chat');
+    const back = dock.querySelector('#stc-dock-back');
+    if (back) back.setAttribute('aria-label', 'Back to all private chats');
+    let link = head.querySelector('#stc-dock-full');
+    if (!link) {
+      link = document.createElement('a');
+      link.id = 'stc-dock-full';
+      link.textContent = 'Full page';
+      link.setAttribute('aria-label', 'Open private messages full page');
+      link.href = '/messages/view/chat';
+      head.insertBefore(link, close);
+    }
+    dock.querySelectorAll('[data-dock-tab]').forEach(button => {
+      button.setAttribute('aria-label', button.dataset.dockTab === 'global' ? 'Global chat' : 'Private messages');
+    });
+    syncLink(dock);
+    new MutationObserver(() => syncLink(dock)).observe(head, {attributes: true, attributeFilter: ['class'], subtree: true});
+    dock.querySelectorAll('iframe').forEach(watchFrame);
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.id === 'stc-dock') enhance(node);
+    node.querySelectorAll('#stc-dock').forEach(enhance);
+    if (node.matches('#stc-dock-body iframe')) watchFrame(node);
+    node.querySelectorAll('#stc-dock-body iframe').forEach(watchFrame);
+  }
+  inspect(document.body);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  const observe = () => observer.observe(document.body, {childList: true, subtree: true});
+  observe();
+  window.addEventListener('pagehide', () => observer.disconnect());
+  window.addEventListener('pageshow', event => { if (event.persisted) { inspect(document.body); observe(); } });
+})();
+
+;
+
+// ===========================================================================
+// 11. notes-ui.js
+// ===========================================================================
+
+;
+/* Popup accessibility and new-layout embedded-page spacing. */
+(() => {
+  'use strict';
+  const watched = new WeakSet();
+  const style = document.createElement('style');
+  style.textContent = `
+    html.stc-new-layout #stc-dock-head [data-dock-tab] {
+      border-radius: 0; background: transparent; box-shadow: none;
+      border-bottom: 2px solid transparent; padding: 0 12px;
+      color: var(--stc-muted);
+    }
+    html.stc-new-layout #stc-dock-head [data-dock-tab].active {
+      background: transparent; box-shadow: none;
+      border-bottom-color: var(--stc-accent); color: var(--stc-text);
+    }
+    html.stc-new-layout #stc-dock-head [data-dock-tab]:hover {
+      background: rgba(128,128,128,.08); color: var(--stc-text);
+    }
+  `;
+  document.head.appendChild(style);
+  function trimFrame(frame) {
+    try {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      // Remove only the confirmed empty navigation spacer inside popup frames.
+      doc.querySelectorAll('main > div.mt-16').forEach(spacer => {
+        if (spacer.classList.contains('lg:mt-0') && !spacer.children.length && !spacer.textContent.trim()) spacer.remove();
+      });
+      if (!doc.querySelector('aside')) return;
+      const content = doc.querySelector('.web-app-container');
+      if (!content) return;
+      // Only clear the content ancestry, not notification cards or message rows.
+      for (let el = content; el && el !== doc.body; el = el.parentElement) {
+        el.style.setProperty('padding-top', '0', 'important');
+        el.style.setProperty('margin-top', '0', 'important');
+      }
+    } catch (_) { /* Leave unreadable frames unchanged. */ }
+  }
+  function watchFrame(frame) {
+    if (watched.has(frame)) return;
+    watched.add(frame);
+    frame.addEventListener('load', () => trimFrame(frame));
+    if (frame.contentDocument && frame.contentDocument.readyState === 'complete') trimFrame(frame);
+  }
+  function enhance(notes) {
+    if (notes.dataset.stcNotesUi !== '1') {
+      notes.setAttribute('role', 'dialog');
+      notes.setAttribute('aria-label', 'Notifications');
+      const close = notes.querySelector('.stc-notes-close');
+      if (close && !close.hasAttribute('aria-label')) close.setAttribute('aria-label', 'Close notifications');
+      const full = notes.querySelector('#stc-notes-full');
+      if (full && !full.hasAttribute('aria-label')) full.setAttribute('aria-label', 'Open notifications full page');
+      notes.dataset.stcNotesUi = '1';
+    }
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    if (node.id === 'stc-notes') enhance(node);
+    node.querySelectorAll('#stc-notes').forEach(enhance);
+    if (node.matches('#stc-notes-body iframe, #stc-dock-body iframe')) watchFrame(node);
+    node.querySelectorAll('#stc-notes-body iframe, #stc-dock-body iframe').forEach(watchFrame);
+  }
+  inspect(document.body);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  const observe = () => observer.observe(document.body, {childList: true, subtree: true});
+  observe();
+  window.addEventListener('pagehide', () => observer.disconnect());
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) { inspect(document.body); observe(); }
+  });
+})();
+
+;
+
+// ===========================================================================
+// 12. page-popup-ui.js
+// ===========================================================================
+
+;
+/* Large game-page popup: independent frame cleanup, existing handlers retained. */
+(() => {
+  'use strict';
+  const watched = new WeakSet();
+  const hostStyle = document.createElement('style');
+  hostStyle.textContent = `
+    #stc-page-box { width: min(1100px, calc(100vw - 24px)); height: 88vh; height: 88dvh; min-height: 0; border-radius: 8px; }
+    #stc-page-head { min-height: 44px; box-sizing: border-box; padding: 8px 12px 8px 16px; gap: 12px; }
+    #stc-page-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+    #stc-page-full { flex-shrink: 0; color: var(--stc-accent); font-size: 12px; }
+    #stc-page-head .stc-page-close { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border-radius: 5px; }
+    #stc-page-head .stc-page-close:hover { background: rgba(239,68,68,.15); color: var(--stc-bad); }
+    #stc-page-body { min-height: 0; min-width: 0; }
+    #stc-page-head button:focus-visible, #stc-page-full:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+    @media (max-width: 640px) { #stc-page-box { width: calc(100vw - 16px); height: 96vh; height: 96dvh; } }
+  `;
+  document.head.appendChild(hostStyle);
+  function cleanFrame(frame) {
+    try {
+      const doc = frame.contentDocument;
+      if (!doc || !doc.head || !doc.querySelector('.web-app-container')) return;
+      if (!doc.getElementById('stc-page-frame-cleanup')) {
+        const css = doc.createElement('style');
+        css.id = 'stc-page-frame-cleanup';
+        css.textContent = `
+          aside, nav.shadow-sm, [class~="md:flex-shrink-0"], footer, #show_hide_chat_btn, #chatBox,
+          .h-screen > button.fixed.rounded-full, .h-screen .fixed.inset-0[class~="lg:hidden"] { display: none !important; }
+          main { padding-left: 0 !important; padding-top: 0 !important; }
+          .web-app-container { padding-top: 4px !important; }
+          main > div.mt-16[class~="lg:mt-0"]:empty { display: none !important; }
+        `;
+        doc.head.appendChild(css);
+      }
+      doc.querySelectorAll('main > div.mt-16').forEach(spacer => {
+        if (spacer.classList.contains('lg:mt-0') && !spacer.children.length && !spacer.textContent.trim()) spacer.remove();
+      });
+    } catch (_) { /* Leave unreadable frames unchanged. */ }
+  }
+  function watchFrame(frame) {
+    if (watched.has(frame)) return;
+    watched.add(frame);
+    frame.addEventListener('load', () => cleanFrame(frame));
+    cleanFrame(frame);
+  }
+  function inspect(node) {
+    if (!(node instanceof Element)) return;
+    const popup = node.id === 'stc-page-pop' ? node : node.querySelector('#stc-page-pop');
+    if (popup) {
+      popup.setAttribute('role', 'dialog');
+      popup.setAttribute('aria-modal', 'true');
+      popup.setAttribute('aria-labelledby', 'stc-page-title');
+      const close = popup.querySelector('.stc-page-close');
+      if (close) close.setAttribute('aria-label', 'Close game page');
+    }
+    if (node.matches('#stc-page-body iframe')) watchFrame(node);
+    node.querySelectorAll('#stc-page-body iframe').forEach(watchFrame);
+  }
+  inspect(document.body);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) inspect(node);
+  });
+  const observe = () => observer.observe(document.body, {childList: true, subtree: true});
+  observe();
+  window.addEventListener('pagehide', () => observer.disconnect());
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) { inspect(document.body); observe(); }
+  });
+})();
+
+;
+
 })();
