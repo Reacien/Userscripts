@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Read the documentation
+    url: https://github.com/Reacien/Userscripts#readme
+    about: Check the available scripts and installation instructions
+
+  - name: SMMO Travel Companion documentation
+    url: https://github.com/Reacien/Userscripts/tree/main/SimpleMMO#readme
+    about: Explore features, settings and screenshots before opening an issue.
