@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -1674,6 +1674,7 @@ document.head.appendChild(style);
     guildReq: 'stc_guild_req',
     statLog: 'stc_stat_log',
     allowGive: 'stc_allow_give',
+    blockedItems: 'stc_blocked_items',
     leader: 'stc_leader'
   };
 
@@ -2867,9 +2868,35 @@ const $ = (id) => document.getElementById(id);
     });
   }
 
+  // Settings: your blocked items
+  function renderBlockedItems(root) {
+    const list = root.querySelector('[data-blocked-list]');
+    if (!list) return;
+    const items = blockedItemNames();
+    setHtml(list, items.length ? items.map((name) => '<div class="stc-row"><span>' + escapeHtml(name) + '</span>' +
+      '<button class="stc-icon-btn" data-blocked-remove="' + escapeHtml(name) + '" title="Unblock">\u00D7</button></div>').join('')
+      : muted('Nothing blocked yet.'));
+  }
+
+  function bindBlockedItems(root) {
+    renderBlockedItems(root);
+    const add = root.querySelector('[data-blocked-add]');
+    if (!add || add.dataset.bound) return;
+    add.dataset.bound = '1';
+    const input = root.querySelector('[data-blocked-input]');
+    const addTyped = () => { if (input.value.trim()) { setItemBlocked(input.value, true); input.value = ''; renderBlockedItems(root); } };
+    add.addEventListener('click', addTyped);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addTyped(); } });
+    root.addEventListener('click', function (e) {
+      const remove = e.target.closest('[data-blocked-remove]');
+      if (remove) { setItemBlocked(remove.dataset.blockedRemove, false); renderBlockedItems(root); }
+    });
+  }
+
   function bindSettingInputs(root) {
     bindRowToggles(root);
     bindProfessionLevels(root);
+    bindBlockedItems(root);
     root.querySelectorAll('[data-key]').forEach(function (input) {
       if (input.dataset.bound) return;
       input.dataset.bound = '1';
@@ -2936,10 +2963,19 @@ const $ = (id) => document.getElementById(id);
         <label>Stats strip and Walking card on Travel <input type="checkbox" data-key="showTravelStrip"></label>
         <label>Info cards on game pages <input type="checkbox" data-key="showPageCards"></label>
         <label>NEW badges on inventory items <input type="checkbox" data-key="collectionMarks"></label>
-        <label>Block shop items and uncollected items when giving items away <input type="checkbox" data-key="guardGiving"></label>
+        <label>Block shop items, your blocked items and uncollected items when giving items away <input type="checkbox" data-key="guardGiving"></label>
         <label>Messages icon opens chat popup <input type="checkbox" data-key="chatPopup"></label>
         <label>Notifications open in a popup <input type="checkbox" data-key="notificationsPopup"></label>
         <label>Shortcuts: Alt+C settings, Alt+M chat <input type="checkbox" data-key="shortcut"></label>
+
+        <div class="stc-section-title" data-blocked-section>Blocked items</div>
+        <div class="stc-note" style="margin-top:0">Items on this list can't be thrown in the Item Dumping Grounds or given to Town Supply Requests,
+          and never get a NEW badge. Use it for items that can't be collected, or that you want to keep.
+          You can also block an item from its item window (the game's popup when you click an item).</div>
+        <div class="stc-btns"><input type="text" data-blocked-input placeholder="Item name, exactly as in the game" style="flex:1;min-width:180px;background:transparent;color:inherit;border:1px solid var(--stc-border);border-radius:6px;padding:6px 8px;font:inherit">
+          <button class="${GAME.button}" data-blocked-add>Block</button></div>
+        <div data-blocked-list></div>
+        <details class="stc-rows-pick"><summary>Shop items (always blocked)</summary><div class="stc-note" data-shop-list></div></details>
 
         <div class="stc-section-title">Pages as popups</div>
         <label>Open every game page in a popup <input type="checkbox" data-key="pagePopups"></label>
@@ -2974,6 +3010,9 @@ const $ = (id) => document.getElementById(id);
     settingsWin.classList.add('open');
     bindRowToggles(settingsWin); // show the current choices
     bindProfessionLevels(settingsWin);
+    renderBlockedItems(settingsWin);
+    const shop = settingsWin.querySelector('[data-shop-list]');
+    if (shop && !shop.textContent) shop.textContent = SHOP_ITEM_NAMES.join(', ');
     renderApiStatus();
   }
 
@@ -3120,7 +3159,7 @@ const $ = (id) => document.getElementById(id);
   // Backup: move settings and sessions to another browser
   // ---------------------------------------------------------------------------
   // What goes in the file. Timers, API status and caches aren't included: they refill by themselves.
-  const BACKUP_KEYS = ['settings', 'session', 'history', 'lifetime', 'expWindow', 'collection', 'seen', 'dock'];
+  const BACKUP_KEYS = ['settings', 'session', 'history', 'lifetime', 'expWindow', 'collection', 'seen', 'dock', 'blockedItems'];
 
   function exportBackup() {
     const data = {};
@@ -4862,9 +4901,14 @@ const $ = (id) => document.getElementById(id);
     if (!settings.collectionMarks || !PATH.startsWith('/inventory')) return;
     const names = collectionNames();
     if (!names.size) return;
+    document.querySelectorAll('main .stc-coll.new').forEach(function (badge) {
+      const span = badge.previousElementSibling;
+      if (span && neverNew(span.textContent)) badge.remove();
+    });
     document.querySelectorAll('main tr span[class*="-item"]:not([data-stc])').forEach(function (span) {
       span.setAttribute('data-stc', '1');
       if (names.has(span.textContent.trim().toLowerCase())) return; // only mark what's new, to keep the list calm
+      if (neverNew(span.textContent)) return; // can't or won't be collected
       const badge = document.createElement('span');
       badge.className = 'stc-coll new';
       badge.textContent = 'NEW';
@@ -4878,7 +4922,7 @@ const $ = (id) => document.getElementById(id);
   // ---------------------------------------------------------------------------
   // The game won't take items that are sold in the shop, and you don't want to give away
   // something that isn't in your collection yet. Their Contribute / Throw buttons get greyed out.
-  const SHOP_ITEMS = new Set([
+  const SHOP_ITEM_NAMES = [
     'Simple Dagger', 'Bootleg T-Shirt', 'Some Geezers Bow', 'Leather Armour', 'Generic Shirt', 'Cheese',
     'Special Carrot', 'Pie', 'Mushroom of Energy +1', 'Delicious Pie', 'Tree', 'Succulent Leaf', 'Bootleg Cheese',
     'Mortems Potion', 'Mushroom of Energy +1 (Untradable)', 'Rat', 'Boar', 'Golem',
@@ -4886,7 +4930,30 @@ const $ = (id) => document.getElementById(id);
     'Rusty Pickaxe', 'Weak Pickaxe', 'Strong Axe', 'Thicc Axe', 'Almost Legendary Axe',
     'Strong Fishing Rod', 'Super Fishing Rod', 'Epic Fishing Rod', 'Strong Shovel', 'Super Shovel', 'Epic Shovel',
     'Strong Pickaxe', 'Viking Pickaxe', 'Super Duper Pickaxe'
-  ].map((n) => n.toLowerCase()));
+  ];
+  const SHOP_ITEMS = new Set(SHOP_ITEM_NAMES.map((n) => n.toLowerCase()));
+
+  // Your own blocked items (names as you typed them; compared without caring about capitals)
+  function blockedItemNames() { return load(KEY.blockedItems, []); }
+  function isItemBlocked(name) {
+    const key = String(name || '').trim().toLowerCase();
+    return blockedItemNames().some((n) => n.toLowerCase() === key);
+  }
+  function setItemBlocked(name, blocked) {
+    const clean = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!clean) return;
+    update(KEY.blockedItems, (list) => {
+      const i = list.findIndex((n) => n.toLowerCase() === clean.toLowerCase());
+      if (blocked && i === -1) list.push(clean);
+      if (!blocked && i !== -1) list.splice(i, 1);
+      list.sort((a, b) => a.localeCompare(b));
+    }, []);
+  }
+  // Never shown as NEW: shop items and your blocked items
+  function neverNew(name) {
+    const key = String(name || '').trim().toLowerCase();
+    return SHOP_ITEMS.has(key) || isItemBlocked(key);
+  }
 
   // Pages where you pick an item to give away.
   function isGivingPage(loc) {
@@ -4902,10 +4969,14 @@ const $ = (id) => document.getElementById(id);
     // "Use anyway" for an item the Companion thinks isn't collected (some items can't be collected at all).
     doc.addEventListener('click', function (e) {
       const allow = e.target.closest('[data-stc-allow]');
-      if (!allow) return;
+      const block = e.target.closest('[data-stc-block]');
+      const unblock = e.target.closest('[data-stc-unblock]');
+      if (!allow && !block && !unblock) return;
       e.preventDefault();
       e.stopPropagation();
-      update(KEY.allowGive, (list) => { if (!list.includes(allow.dataset.stcAllow)) list.push(allow.dataset.stcAllow); }, []);
+      if (allow) update(KEY.allowGive, (list) => { if (!list.includes(allow.dataset.stcAllow)) list.push(allow.dataset.stcAllow); }, []);
+      if (block) setItemBlocked(block.dataset.stcBlock, true);
+      if (unblock) setItemBlocked(unblock.dataset.stcUnblock, false);
       guardItems(doc);
     }, true);
     guardItems(doc);
@@ -4929,6 +5000,7 @@ const $ = (id) => document.getElementById(id);
         [...row.querySelectorAll('*')].some((el) => el.children.length === 0 && el.textContent.trim() === 'Collectable');
       let reason = null;
       if (SHOP_ITEMS.has(key)) reason = 'shop';
+      else if (isItemBlocked(key)) reason = 'blocked';
       else if (collectable && !collectedHere && !names.has(key) && !allowed.has(key)) reason = 'collection';
 
       row.querySelectorAll('a, button').forEach(function (control) {
@@ -4953,9 +5025,10 @@ const $ = (id) => document.getElementById(id);
           const span = doc.createElement('span');
           span.className = 'stc-ui stc-give-note';
           span.setAttribute('data-stc-note', reason);
-          span.innerHTML = reason === 'shop'
-            ? 'Shop item: not accepted'
-            : 'Not in your collection yet · <a href="#" data-stc-allow="' + escapeHtml(key) + '">use anyway</a>';
+          span.innerHTML = reason === 'shop' ? 'Shop item: not accepted'
+            : reason === 'blocked' ? 'On your blocked list · <a href="#" data-stc-unblock="' + escapeHtml(name) + '">unblock</a>'
+            : 'Not in your collection yet · <a href="#" data-stc-allow="' + escapeHtml(key) + '">use anyway</a>' +
+              ' · <a href="#" data-stc-block="' + escapeHtml(name) + '">always block</a>';
           control.after(span);
         }
       });
@@ -5447,7 +5520,8 @@ const $ = (id) => document.getElementById(id);
     const existing = win.el.querySelector('.stc-collect-btn');
     const item = win.data.item;
     const inInventory = item && item.quantity_data ? item.quantity_data.inventory : 0;
-    const wanted = lockBtn && item && item.collection && item.collection.item === 0 && inInventory > 0;
+    renderBlockButton(win, lockBtn, item);
+    const wanted = lockBtn && item && item.collection && item.collection.item === 0 && inInventory > 0 && !neverNew(item.name);
     if (!wanted) { if (existing) existing.remove(); return; }
     if (existing && existing.dataset.itemId === String(item.id)) return;
     if (existing) existing.remove();
@@ -5460,6 +5534,30 @@ const $ = (id) => document.getElementById(id);
     btn.title = 'Opens your Inventory with just this item, where you can add it to your collection';
     btn.addEventListener('click', function () { askAddToCollection(item); });
     lockBtn.after(btn);
+  }
+
+  // "Block item" in the item window: puts the item on (or takes it off) your blocked list
+  function renderBlockButton(win, lockBtn, item) {
+    let btn = win.el.querySelector('.stc-block-btn');
+    if (!lockBtn || !item || !item.name || SHOP_ITEMS.has(String(item.name).toLowerCase())) { if (btn) btn.remove(); return; }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = lockBtn.className + ' stc-block-btn';
+      btn.addEventListener('click', function () {
+        const name = btn.dataset.itemName;
+        const blocked = !isItemBlocked(name);
+        setItemBlocked(name, blocked);
+        showToast(blocked ? name + ' is blocked: no NEW badge, and it can\u2019t be thrown or contributed.' : name + ' is no longer blocked.');
+      });
+      (win.el.querySelector('.stc-collect-btn') || lockBtn).after(btn);
+    }
+    const blocked = isItemBlocked(item.name);
+    btn.dataset.itemName = item.name;
+    const label = blocked ? 'Unblock item' : 'Block item';
+    if (btn.textContent !== label) btn.textContent = label;
+    btn.title = blocked ? 'Allow this item to be thrown or contributed again, and show NEW badges for it'
+      : 'Never throw or contribute this item, and never mark it as NEW';
   }
 
   // Opens your Inventory in the popup, filtered to this item, so you can use the game's own
