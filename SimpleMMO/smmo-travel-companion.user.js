@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4548,7 +4548,7 @@ const $ = (id) => document.getElementById(id);
         const fillBtn = e.target.closest('[data-craft-fill]');
         const box2 = doc.querySelector('input[wire\\:model="wizard.quantity"]'); // the game may have redrawn it
         if (fillBtn && box2) {
-          box2.value = fillBtn.dataset.craftFill;
+          box2.value = String(Math.min(10, parseInt(fillBtn.dataset.craftFill, 10) || 1));
           box2.dispatchEvent(new Event('input', { bubbles: true }));
           box2.dispatchEvent(new Event('change', { bubbles: true }));
         }
@@ -4563,11 +4563,13 @@ const $ = (id) => document.getElementById(id);
     const level = state.crafting_level || 1;
     const epPer = recipe.energy_cost || 1;
     const expPer = (state.config.experience && state.config.experience.crafting ? state.config.experience.crafting.base : 5) * (recipe.experience_modifier ? recipe.experience_modifier.crafting : 1);
-    const batch = parseInt(input.max, 10) || 10;
+    const batch = 10; // the game crafts at most 10 items at a time, so "Fill in" never types more
     const keep = settings.craftKeepEnergy || 0;
 
-    // Materials: the recipe needs a number of materials of a rarity per item; add up what you have of that rarity
-    const owned = Object.values(state.player_materials || {});
+    // Materials: the recipe needs a number of materials of a rarity per item; add up what you have of that rarity.
+    // Diamond Shards are only used for crafting Diamonds, so they don't count for any other recipe.
+    const owned = Object.values(state.player_materials || {})
+      .filter((m) => key === 'diamonds' || !/diamond shard/i.test(String(m.name || '').replace(/<[^>]*>/g, '')));
     const needs = Object.entries(recipe.required_rarity || {}).map(([rarity, r]) => ({
       name: r.name, per: r.quantity, have: owned.filter((m) => m.rarity === rarity).reduce((a, m) => a + (m.quantity || 0), 0)
     }));
@@ -4579,9 +4581,10 @@ const $ = (id) => document.getElementById(id);
     const toLevel = needed !== null && level < (state.config.max_crafting_level || 100) ? Math.ceil(Math.max(1, needed) / expPer) : null;
 
     const fill = (n) => n > 0 ? ' <button class="stc-icon-btn stc-craft-fill" data-craft-fill="' + Math.min(n, batch) + '">Fill in ' + Math.min(n, batch) + '</button>' : '';
-    const limits = [byMaterials, byEnergy, batch].filter((n) => n !== null);
-    const most = Math.min(...limits);
-    const why = most === batch ? 'the most per craft' : most === byEnergy ? 'your energy' : 'your materials';
+    // How many you could make in total (energy and materials); "Fill in" still types 10 at most
+    const limits = [byMaterials, byEnergy].filter((n) => n !== null);
+    const most = limits.length ? Math.min(...limits) : batch;
+    const why = !limits.length ? 'per craft' : most === byEnergy ? 'your energy' : 'your materials';
 
     let html = '<div class="stc-craft-title">Companion</div>';
     html += '<div class="stc-row"><span>Energy now</span><span>' + (ep ? ep.current + ' / ' + ep.max : muted('not known yet')) + '</span></div>';
@@ -4598,6 +4601,7 @@ const $ = (id) => document.getElementById(id);
     });
     if (!needs.length) html += '<div class="stc-note">This recipe needs specific items; check them in the game’s list.</div>';
     html += '<div class="stc-row"><span><b>Most you can craft now</b></span><span><b>' + fmt(Math.max(0, most)) + '</b> ' + muted('(' + why + ')') + fill(most) + '</span></div>';
+    if (most > batch) html += '<div class="stc-note" style="margin-top:0">You can craft ' + batch + ' at a time, so that\u2019s ' + Math.ceil(most / batch) + ' crafts.</div>';
     html += '<div class="stc-note" style="margin-top:2px">' + expPer + ' crafting EXP and ' + epPer + ' EP per item. "Fill in" only types the number; you press Start Crafting.</div>';
     setHtml(box, html);
   }
