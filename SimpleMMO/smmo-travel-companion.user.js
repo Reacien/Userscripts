@@ -2601,6 +2601,15 @@ document.head.appendChild(style);
   function dailyView(id, timers) {
     const d = timers[id];
     if (!d) return muted('Not checked yet');
+    
+    if (id === 'orphanageBuff') {
+      const data = load(KEY.data, {});
+      const level = orphanageLevel(data.orphanage || []);
+      if (!level.active | level.active < 1) {
+        return muted('Unavailable');
+      }
+    }
+
     const reset = timers.tasks && timers.tasks.endsAt;
     const resetSince = reset && d.seenAt < reset && reset <= Date.now();
     return d.available || resetSince ? ready('Available') : muted('Done today');
