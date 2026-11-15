@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -3374,8 +3374,8 @@ const $ = (id) => document.getElementById(id);
     const info = levelInfo(timers);
     setHtml(part('[data-s="level"]'), info
       ? '<div class="stc-row"><span>Lv ' + fmt(info.level) + '</span><span>' + info.pct.toFixed(1) + '%' +
-        (info.left <= 0 ? ' ' + ready('Level up!') : info.steps ? muted(' · ≈' + fmt(info.steps) + ' steps') : '') + '</span></div>' +
-        '<div class="stc-bar"><div style="width:' + info.pct.toFixed(1) + '%"></div></div>'
+      (info.left <= 0 ? ' ' + ready('Level up!') : info.steps ? muted(' · ≈' + fmt(info.steps) + ' steps') : '') + '</span></div>' +
+      '<div class="stc-bar"><div style="width:' + info.pct.toFixed(1) + '%"></div></div>'
       : '');
     part('[data-s="level"]').style.display = rowShown('level') ? '' : 'none';
     part('[data-s="level-sep"]').style.display = info && rowShown('level') ? '' : 'none';
@@ -3407,7 +3407,23 @@ const $ = (id) => document.getElementById(id);
     setHtml(part('[data-s="hp"]'), timers.hp ? short(timers.hp.current) + '/' + short(timers.hp.max) : muted('—'));
     const arena = load(KEY.data, {}).arena;
     setHtml(part('[data-s="arena"]'), arena ? escapeHtml(arena.name.replace(/ League$/, '')) + muted(' ' + fmt(arena.wins) + '/' + fmt(arena.required)) : muted('\u2014'));
-    ['orphanageBuff', 'worshipUse', 'orphanage', 'arena', 'hp'].forEach((id) => { part('[data-row="' + id + '"]').style.display = rowShown(id) ? '' : 'none'; });
+
+    // Controlled layout visibility for side rows
+    ['orphanageBuff', 'worshipUse', 'orphanage', 'arena', 'hp'].forEach((id) => {
+      let shouldShow = rowShown(id);
+
+      // Auto-hide the Orphanage buff row if no tier has been achieved yet
+      if (id === 'orphanageBuff') {
+        const data = load(KEY.data, {});
+        const level = orphanageLevel(data.orphanage || []);
+        if (!level.active || level.active <1) {
+          shouldShow = false;
+        }
+      }
+
+      part('[data-row="' + id + '"]').style.display = shouldShow ? '' : 'none';
+    });
+
     // The line between the cooldowns and the rows below only when both have something showing.
     const anyShown = (ids) => ids.some((id) => { const r = part('[data-row="' + id + '"]'); return r && r.style.display !== 'none'; });
     part('[data-s="mid-sep"]').style.display = anyShown(TIMERS.map((d) => d.id)) && anyShown(['orphanageBuff', 'worshipUse', 'orphanage', 'hp', 'messages']) ? '' : 'none';
