@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.1.4
+// @version      1.1.5
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -1689,7 +1689,8 @@ document.head.appendChild(style);
     allowGive: 'stc_allow_give',
     blockedItems: 'stc_blocked_items',
     leader: 'stc_leader',
-    bounties: 'stc_bounties'
+    bounties: 'stc_bounties',
+    questSpend: 'stc_quest_spend'
   };
 
   const DEFAULT_SETTINGS = {
@@ -1729,6 +1730,7 @@ document.head.appendChild(style);
     notificationsPopup: true,
     autoAcceptBounties: false,
     bountyMinWinChance: 80,
+    autoSpendQuestPoints: false,
     shortcut: true,
     // Market
     energyTarget: 0,  // alert when energy reaches this many points (0 = full)
@@ -2997,6 +2999,8 @@ const $ = (id) => document.getElementById(id);
         <label>Automatically accept obtainable bounties <input type="checkbox" data-key="autoAcceptBounties"></label>
         <label>Minimum bounty win chance, percent <input type="number" min="0" max="100" data-key="bountyMinWinChance"></label>
         <div class="stc-note" style="margin-top:0">Checks whether you already have an accepted bounty, then accepts an Obtainable bounty only when its estimated win chance is at least this high. Background checks run every 5 minutes, on the clock.</div>
+        <label>Automatically spend Quest Points <input type="checkbox" data-key="autoSpendQuestPoints"></label>
+        <div class="stc-note" style="margin-top:0">In the background every 5 minutes, but only when your Quest Points are full. Spends them on the unfinished quest closest to completion, then continues while QP remain. You can also use “Spend QP now” on the Quests page at any time.</div>
         <label>Shortcuts: Alt+C settings, Alt+M chat <input type="checkbox" data-key="shortcut"></label>
 
         <div class="stc-section-title" data-blocked-section>Blocked items</div>
@@ -4440,12 +4444,15 @@ const $ = (id) => document.getElementById(id);
       '<span class="stc-muted" style="font-size:11px;margin-left:auto">Companion</span></div><div data-q></div>' +
       '<div class="stc-row" style="margin-top:10px;justify-content:flex-start;gap:10px">' + muted('Sort the list below:') +
         '<span class="stc-seg"><button type="button" data-q-sort="left">Fewest left first</button>' +
-        '<button type="button" data-q-sort="game">Game order</button></span></div>';
+        '<button type="button" data-q-sort="game">Game order</button></span>' +
+        '<button type="button" class="' + GAME.button2 + '" data-spend-qp style="margin-left:auto">Spend QP now</button></div>';
     column.insertBefore(el, column.firstChild);
     const helper = { el: el, doc: doc, gd: readGameData(doc.documentElement.innerHTML) };
     el.addEventListener('click', function (e) {
       const show = e.target.closest('[data-q-show]');
       if (show) { e.preventDefault(); showQuest(doc, show.dataset.qShow); return; }
+      const spend = e.target.closest('[data-spend-qp]');
+      if (spend) { e.preventDefault(); spendQuestPointsNow(); return; }
       const sort = e.target.closest('[data-q-sort]');
       if (sort) {
         settings.questSort = sort.dataset.qSort;
@@ -5392,7 +5399,8 @@ const $ = (id) => document.getElementById(id);
   }
 
   function nextBountyCheckAt(now) {
-    return Math.ceil((now + 1) / REGEN_MS) * REGEN_MS;
+    const minute = 60_000;
+    return Math.floor(now / minute) * minute + minute;
   }
 
   function scheduleBountyCheck(now) {
@@ -5444,7 +5452,6 @@ const $ = (id) => document.getElementById(id);
     if (cancel) cancel.click();
   }
 
-  // The Accepted page shows the bounty you currently have accepted.
   async function hasActiveBounty() {
     try {
       const response = await fetch('/bounties?accepted=true', { credentials: 'same-origin' });
@@ -5474,7 +5481,6 @@ const $ = (id) => document.getElementById(id);
     return Math.round(winChance(me, them, 1000).chance * 100);
   }
 
-  // Opens one bounty and accepts it only if the game shows its own visible Accept button.
   async function acceptBountyInDoc(doc) {
     const rows = bountyRowsIn(doc);
     const attempts = bountyAttempts();
@@ -5526,7 +5532,6 @@ const $ = (id) => document.getElementById(id);
     return { accepted: 1, skipped: 0 };
   }
 
-  // Immediate check while the user has the Obtainable Bounties page open.
   async function acceptNextBounty() {
     if (bountyBusy || !settings.autoAcceptBounties) return;
     if (location.pathname !== '/bounties') return;
@@ -5551,7 +5556,6 @@ const $ = (id) => document.getElementById(id);
     }
   }
 
-  // Background check: one hidden Bounties page, at the next five-minute clock mark.
   async function checkBountiesBackground() {
     const state = bountyState();
     const now = Date.now();
@@ -5613,8 +5617,181 @@ const $ = (id) => document.getElementById(id);
   setInterval(acceptNextBounty, 3000);
   setInterval(checkBountiesBackground, 1000);
 
-  // Ensure the first background check lands on a five-minute clock mark.
   if (!bountyState().nextCheckAt) scheduleBountyCheck();
+
+  // ===========================================================================
+  // Quest Points: spend them on the quest closest to completion
+  // ===========================================================================
+  const QUEST_SPEND_DEFAULTS = { lastCheckAt: 0, nextCheckAt: 0 };
+  let questSpendBusy = false;
+  let questSpendFrame = null;
+
+  function questSpendState() {
+    return load(KEY.questSpend, QUEST_SPEND_DEFAULTS);
+  }
+
+  function nextQuestCheckAt(now) {
+    return Math.ceil((now + 1) / REGEN_MS) * REGEN_MS;
+  }
+
+  function scheduleQuestCheck(now) {
+    update(KEY.questSpend, (state) => {
+      state.nextCheckAt = nextQuestCheckAt(now || Date.now());
+    }, QUEST_SPEND_DEFAULTS);
+  }
+
+  function questsInDoc(doc) {
+    for (const node of doc.querySelectorAll('[x-data]')) {
+      const data = node._x_dataStack && node._x_dataStack[0];
+      if (data && Array.isArray(data.expeditions)) {
+        return {
+          list: data.expeditions,
+          qp: typeof data.quest_points === 'number' ? data.quest_points : 0
+        };
+      }
+    }
+    return null;
+  }
+
+  function questPerformButtonIn(doc) {
+    return [...doc.querySelectorAll('button')].find((button) => {
+      const action = button.getAttribute('x-on:click') || '';
+      return /performExpedition/i.test(action) && /perform/i.test(button.textContent || '');
+    });
+  }
+
+  async function spendQuestPointsInDoc(doc) {
+    let spent = 0;
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const data = questsInDoc(doc);
+      if (!data) break;
+
+      const qp = data.qp || 0;
+      if (qp <= 0) break;
+
+      const quest = closestQuests(data.list)[0];
+      if (!quest) break;
+
+      const amount = Math.min(qp, quest.left);
+      if (amount <= 0) break;
+
+      if (!showQuest(doc, quest.title)) break;
+      await wait(600);
+
+      const button = questPerformButtonIn(doc);
+      if (!button) break;
+
+      const host = button.closest('[x-data]');
+      const scope = host && host._x_dataStack && host._x_dataStack[0];
+      if (!scope) break;
+
+      scope.quantity = amount;
+      await wait(150);
+
+      if (button.disabled || button.getAttribute('aria-disabled') === 'true') break;
+
+      button.click();
+      spent += amount;
+      await wait(2500);
+    }
+
+    return spent;
+  }
+
+  // Manual button: spend QP now, whether or not the automatic setting is on.
+  async function spendQuestPointsNow() {
+    if (questSpendBusy) return;
+    if (humanCheckShowing()) {
+      showToast('Complete the human check first.');
+      return;
+    }
+
+    questSpendBusy = true;
+    let frame = null;
+
+    try {
+      let doc = document;
+      if (!location.pathname.startsWith('/quests')) {
+        frame = document.createElement('iframe');
+        frame.src = '/quests';
+        frame.setAttribute('aria-hidden', 'true');
+        frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:800px;opacity:0;pointer-events:none;border:0;';
+        document.body.appendChild(frame);
+
+        await new Promise((resolve) => {
+          frame.addEventListener('load', resolve, { once: true });
+          setTimeout(resolve, 10000);
+        });
+
+        try { doc = frame.contentDocument; } catch (_) { doc = null; }
+        if (!doc || !doc.body) {
+          showToast('Could not open the Quests page.');
+          return;
+        }
+      }
+
+      const spent = await spendQuestPointsInDoc(doc);
+      showToast(spent > 0 ? 'Spent ' + fmt(spent) + ' Quest Points.' : 'No Quest Points could be spent right now.');
+    } catch (error) {
+      console.warn('SMMO Companion manual Quest Point spending failed.', error);
+    } finally {
+      questSpendBusy = false;
+      if (frame) frame.remove();
+    }
+  }
+
+  async function checkQuestSpendBackground() {
+    const state = questSpendState();
+    const now = Date.now();
+    if (questSpendBusy || !settings.autoSpendQuestPoints || !settings.backgroundChecks) return;
+    if (now < state.nextCheckAt || !isLeader()) return;
+    if (humanCheckShowing()) return;
+
+    // Automatic spending waits until QP are full.
+    const timers = load(KEY.timers, {});
+    const qp = timers.qp;
+    if (!qp || typeof qp.current !== 'number' || typeof qp.max !== 'number' || qp.current < qp.max) {
+      scheduleQuestCheck();
+      return;
+    }
+
+    questSpendBusy = true;
+    try {
+      const frame = document.createElement('iframe');
+      frame.src = '/quests';
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:800px;opacity:0;pointer-events:none;border:0;';
+      document.body.appendChild(frame);
+      questSpendFrame = frame;
+
+      await new Promise((resolve) => {
+        frame.addEventListener('load', resolve, { once: true });
+        setTimeout(resolve, 10000);
+      });
+
+      let doc = null;
+      try { doc = frame.contentDocument; } catch (_) { /* Cross-origin or unavailable. */ }
+      if (!doc || !doc.body) return;
+
+      const spent = await spendQuestPointsInDoc(doc);
+      update(KEY.questSpend, (saved) => { saved.lastCheckAt = Date.now(); }, QUEST_SPEND_DEFAULTS);
+
+      if (spent > 0) showToast('Spent ' + fmt(spent) + ' Quest Points in the background.');
+    } catch (error) {
+      console.warn('SMMO Companion background Quest Point spending failed.', error);
+    } finally {
+      questSpendBusy = false;
+      if (questSpendFrame) {
+        questSpendFrame.remove();
+        questSpendFrame = null;
+      }
+      scheduleQuestCheck();
+    }
+  }
+
+  setInterval(checkQuestSpendBackground, 1000);
+  if (!questSpendState().nextCheckAt) scheduleQuestCheck();
 
   const pagePop = document.createElement('div');
   pagePop.id = 'stc-page-pop';
@@ -6198,6 +6375,7 @@ const $ = (id) => document.getElementById(id);
     checkMessages();
     autoScanCollection();
     checkBountiesBackground();
+    checkQuestSpendBackground();
   }, 2000);
 })();
 
