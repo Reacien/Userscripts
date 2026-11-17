@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -322,6 +322,19 @@ html:not(.dark) .stc-side {
   background: var(--stc-side-hover);
 }
 .stc-side .stc-tools svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  pointer-events: none;
+}
+.stc-side .stc-row-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  flex: none;
+  vertical-align: -3px;
+}
+.stc-side .stc-tools .stc-tool-icon {
   width: 15px;
   height: 15px;
   flex: none;
@@ -1675,7 +1688,8 @@ document.head.appendChild(style);
     statLog: 'stc_stat_log',
     allowGive: 'stc_allow_give',
     blockedItems: 'stc_blocked_items',
-    leader: 'stc_leader'
+    leader: 'stc_leader',
+    bounties: 'stc_bounties',
   };
 
   const DEFAULT_SETTINGS = {
@@ -1713,6 +1727,7 @@ document.head.appendChild(style);
     popupsOnlyOnTravel: false,
     messageAlert: true,
     notificationsPopup: true,
+    bountyWatch: true,
     shortcut: true,
     // Market
     energyTarget: 0,  // alert when energy reaches this many points (0 = full)
@@ -2383,6 +2398,9 @@ document.head.appendChild(style);
 
   function readCurrentPage() {
     if (PATH.startsWith('/preferences/customisation')) rememberLayoutSetting(parseLayoutSetting(document.documentElement.innerHTML));
+    if (PATH.startsWith('/bounties')) {
+      update(KEY.bounties, (b) => { if (b.unseen) b.unseen = 0; }, BOUNTY_DEFAULTS);
+    }
     const source = SOURCES[PATH];
     if (source) scheduleSource(PATH, source(document.documentElement.innerHTML));
 
@@ -2518,7 +2536,7 @@ document.head.appendChild(style);
   const SIDE_ROWS = [{ id: 'level', name: 'Level progress' }]
     .concat(TIMERS.map((d) => ({ id: d.id, name: d.name })))
     .concat(DAILIES.map((d) => ({ id: d.id, name: d.name })))
-    .concat([{ id: 'orphanage', name: 'Orphanage tier' }, { id: 'arena', name: 'Arena league' }, { id: 'hp', name: 'HP' }, { id: 'messages', name: 'Messages' }]);
+    .concat([{ id: 'orphanage', name: 'Orphanage tier' }, { id: 'arena', name: 'Arena league' }, { id: 'hp', name: 'HP' }, { id: 'messages', name: 'Messages' }, { id: 'bounties', name: 'Bounties' }]);
 
   // Hidden rows also stop alerting and don't count toward the badge.
   function rowShown(id) { return !(settings.hiddenRows || []).includes(id); }
@@ -2975,6 +2993,8 @@ const $ = (id) => document.getElementById(id);
         <label>Block shop items, your blocked items and uncollected items when giving items away <input type="checkbox" data-key="guardGiving"></label>
         <label>Messages icon opens chat popup <input type="checkbox" data-key="chatPopup"></label>
         <label>Notifications open in a popup <input type="checkbox" data-key="notificationsPopup"></label>
+        <label>Notify me about obtainable bounties <input type="checkbox" data-key="bountyWatch"></label>
+        <div class="stc-note">Read-only checks every minute. Never accepts bounties or spends Quest Points.</div>
         <label>Shortcuts: Alt+C settings, Alt+M chat <input type="checkbox" data-key="shortcut"></label>
 
         <div class="stc-section-title" data-blocked-section>Blocked items</div>
@@ -3285,6 +3305,29 @@ const $ = (id) => document.getElementById(id);
   const ONLY_WHEN_ACTIVE = ['sprint', 'worshipBuff', 'safeMode'];
 
   // What's inside the Companion block (the same in both layouts).
+  // Icons taken from SimpleMMO's own asset set, so the Companion matches the game.
+  const GAME_ICONS = {
+    energy: '/img/icons/S_Thunder01.png',
+    qp: '/img/icons/S_Light01.png',
+    job: '/img/icons/I_GoldBar.png',
+    crafting: '/img/icons/two/32px/Hammer_32.png',
+    worship: '/img/icons/S_Holy02.png',
+    worshipUse: '/img/icons/S_Holy02.png',
+    tasks: '/img/icons/I_Scroll02.png',
+    boss: '/img/icons/S_Dagger02.png',
+    arena: '/img/icons/S_Fire05.png',
+    orphanage: '/img/icons/one/icon427.png',
+    orphanageBuff: '/img/icons/one/icon427.png',
+    hp: '/img/icons/S_Holy01.png',
+    messages: '/img/icons/I_Scroll.png',
+    bounties: '/img/icons/S_Shadow13.png'
+  };
+
+  function gameIcon(id) {
+    const src = GAME_ICONS[id];
+    return src ? '<img class="stc-row-icon" src="' + src + '" alt="" width="16" height="16" loading="lazy">' : '';
+  }
+
   function sideBoxHtml() {
     return '<div class="stc-side-box">' +
         '<div class="stc-row stc-warn" data-s="verify" style="display:none">⚠ Human check waiting</div>' +
@@ -3294,16 +3337,17 @@ const $ = (id) => document.getElementById(id);
           const value = def.id === 'energy' || def.id === 'qp'
             ? '<span class="stc-points" data-points="' + def.id + '" title="Click to set when to be alerted"></span>'
             : '<span data-t="' + def.id + '"></span>';
-          return '<div class="stc-row" data-row="' + def.id + '"><span class="stc-name">' + link(def.short, def.page) +
+          return '<div class="stc-row" data-row="' + def.id + '"><span class="stc-name">' + gameIcon(def.id) + link(def.short, def.page) +
             '<button class="stc-icon-btn stc-bell" data-bell="' + def.id + '"></button></span>' + value + '</div>';
         }).join('') +
         '<div class="stc-sep" data-s="mid-sep"></div>' +
-        DAILIES.map((def) => '<div class="stc-row" data-row="' + def.id + '"><span>' + link(def.name.replace('Orphanage daily buff', 'Orphanage buff'), def.page) + '</span><span data-d="' + def.id + '"></span></div>').join('') +
-        '<div class="stc-row" data-row="arena"><span>' + link('Arena', '/battle') + '</span><span data-s="arena"></span></div>' +
-        '<div class="stc-row" data-row="orphanage"><span class="stc-name">' + link('Orphanage', '/orphanage') +
+        DAILIES.map((def) => '<div class="stc-row" data-row="' + def.id + '"><span>' + gameIcon(def.id) + link(def.name.replace('Orphanage daily buff', 'Orphanage buff'), def.page) + '</span><span data-d="' + def.id + '"></span></div>').join('') +
+        '<div class="stc-row" data-row="arena"><span>' + gameIcon('arena') + link('Arena', '/battle') + '</span><span data-s="arena"></span></div>' +
+        '<div class="stc-row" data-row="orphanage"><span class="stc-name">' + gameIcon('orphanage') + link('Orphanage', '/orphanage') +
           '<button class="stc-icon-btn stc-bell" data-bell="orphanage3"></button></span><span data-s="orphanage"></span></div>' +
-        '<div class="stc-row" data-row="hp"><span class="stc-muted">HP</span><span data-s="hp"></span></div>' +
-        '<div class="stc-row" data-row="messages"><span><a href="/messages/inbox" data-dock-private>Messages</a></span><span data-s="msg"></span></div>' +
+        '<div class="stc-row" data-row="hp"><span class="stc-muted">' + gameIcon('hp') + 'HP</span><span data-s="hp"></span></div>' +
+        '<div class="stc-row" data-row="messages"><span>' + gameIcon('messages') + '<a href="/messages/inbox" data-dock-private>Messages</a></span><span data-s="msg"></span></div>' +
+        '<div class="stc-row" data-row="bounties"><span class="stc-name">' + gameIcon('bounties') + link('Bounties', '/bounties') + '</span><span data-s="bounties"></span></div>' +
       '</div>';
   }
 
@@ -3408,8 +3452,19 @@ const $ = (id) => document.getElementById(id);
     const arena = load(KEY.data, {}).arena;
     setHtml(part('[data-s="arena"]'), arena ? escapeHtml(arena.name.replace(/ League$/, '')) + muted(' ' + fmt(arena.wins) + '/' + fmt(arena.required)) : muted('\u2014'));
 
+    const bountyInfo = bountyState();
+    const bountyRow = part('[data-row="bounties"]');
+    if (bountyRow) {
+      bountyRow.style.display = rowShown('bounties') ? '' : 'none';
+      bountyRow.classList.toggle('stc-new', bountyInfo.unseen > 0);
+      setHtml(part('[data-s="bounties"]'), bountyInfo.checkedAt ? fmt(bountyInfo.ids.length) : muted('—'));
+      bountyRow.title = bountyInfo.error || (bountyInfo.checkedAt
+        ? 'Available bounties at last check: ' + new Date(bountyInfo.checkedAt).toLocaleTimeString()
+        : 'Waiting for first bounty check');
+    }
+
     // Controlled layout visibility for side rows
-    ['orphanageBuff', 'worshipUse', 'orphanage', 'arena', 'hp'].forEach((id) => {
+    ['orphanageBuff', 'worshipUse', 'orphanage', 'arena', 'hp', 'bounties'].forEach((id) => {
       let shouldShow = rowShown(id);
 
       // Auto-hide the Orphanage buff row if no tier has been achieved yet
@@ -3426,7 +3481,7 @@ const $ = (id) => document.getElementById(id);
 
     // The line between the cooldowns and the rows below only when both have something showing.
     const anyShown = (ids) => ids.some((id) => { const r = part('[data-row="' + id + '"]'); return r && r.style.display !== 'none'; });
-    part('[data-s="mid-sep"]').style.display = anyShown(TIMERS.map((d) => d.id)) && anyShown(['orphanageBuff', 'worshipUse', 'orphanage', 'hp', 'messages']) ? '' : 'none';
+    part('[data-s="mid-sep"]').style.display = anyShown(TIMERS.map((d) => d.id)) && anyShown(['orphanageBuff', 'worshipUse', 'orphanage', 'hp', 'messages', 'bounties']) ? '' : 'none';
     part('[data-s="verify"]').style.display = verifyShown ? '' : 'none';
     const badge = part('[data-s="badge"]');
     badge.textContent = unseenIds.length;
@@ -5321,6 +5376,62 @@ const $ = (id) => document.getElementById(id);
   // Pages that should never open in the popup.
   const NEVER_POPUP = /^\/(travel\/?$|logout|login|register)/;
 
+
+
+  // ===========================================================================
+  // Bounties: accept only when you have no active bounty and the odds are good
+  // ===========================================================================
+  const BOUNTY_DEFAULTS = { ids: [], unseen: 0, checkedAt: 0, slot: null, error: '' };
+  let bountyWatchBusy = false;
+  function bountyState() { return load(KEY.bounties, BOUNTY_DEFAULTS); }
+
+  function obtainableRows(doc) {
+    const main = doc.querySelector('main');
+    if (!main) throw new Error('Game content not found');
+    const heading = [...main.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+      .find(el => /obtainable/i.test(el.textContent));
+    if (!heading) throw new Error('Obtainable heading not found');
+    let section = heading.parentElement;
+    while (section && section !== main && !section.querySelector('nav')) section = section.parentElement;
+    if (!section || section === main) throw new Error('Cannot safely identify Obtainable list');
+    return [...section.querySelectorAll('a[onclick*="showBounty"]')].filter(row =>
+      ![...row.querySelectorAll('span')].some(el => /^(Ongoing|Accepted)$/i.test(el.textContent.trim())));
+  }
+
+  async function checkBountiesBackground() {
+    const slot = Math.floor(Date.now() / 60000);
+    if (!settings.backgroundChecks || !settings.bountyWatch || bountyWatchBusy || !isLeader()) return;
+    const previous = bountyState();
+    if (previous.slot === slot) return;
+    bountyWatchBusy = true;
+    save(KEY.bounties, Object.assign({}, previous, { slot }));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch('/bounties', {
+        credentials: 'same-origin', cache: 'no-store', signal: controller.signal
+      });
+      if (!response.ok || new URL(response.url).pathname !== '/bounties') throw new Error('Page unavailable or login required');
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const rows = obtainableRows(doc);
+      const ids = [...new Set(rows.map(row => {
+        const m = (row.getAttribute('onclick') || '').match(/showBounty\(\s*(?:true|false)\s*,\s*(\d+)/);
+        return m ? m[1] : null;
+      }).filter(Boolean))];
+      const added = ids.filter(id => !previous.ids.includes(id));
+      const current = bountyState();
+      save(KEY.bounties, { ids, unseen: ids.length && (current.unseen || added.length) ? 1 : 0,
+        checkedAt: Date.now(), slot, error: '' });
+      if (added.length && rowShown('bounties')) cue(added.length + ' new obtainable ' + (added.length === 1 ? 'bounty' : 'bounties') + ' available.');
+    } catch (error) {
+      update(KEY.bounties, state => { state.error = 'Bounty check failed: ' + error.message; }, BOUNTY_DEFAULTS);
+      console.warn('[SMMO Companion] Bounty check failed:', error);
+    } finally {
+      clearTimeout(timeout);
+      bountyWatchBusy = false;
+    }
+  }
+
   const pagePop = document.createElement('div');
   pagePop.id = 'stc-page-pop';
   pagePop.innerHTML =
@@ -5867,82 +5978,10 @@ const $ = (id) => document.getElementById(id);
     }
   }
 
-
-  // Read-only bounty watcher. Never opens a bounty or submits a game action.
-  const BOUNTY_WATCH_KEY = 'stc_bounty_watch_readonly';
-  let bountyWatchBusy = false;
-  function bountyWatchState() {
-    return load(BOUNTY_WATCH_KEY, { ids: [], unseen: false, checkedAt: 0, slot: null, error: '' });
-  }
-  function renderBountyWatch() {
-    if (!sideEl || !sideEl.isConnected) return;
-    let row = sideEl.querySelector('[data-bounty-watch]');
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'stc-row';
-      row.setAttribute('data-bounty-watch', '');
-      row.innerHTML = '<span class="stc-name"><img src="/img/icons/S_Shadow13.png" alt="" width="16" height="16" style="display:inline-block;width:16px;height:16px;vertical-align:middle"><a href="/bounties">Bounties</a></span><span data-bounty-count></span>';
-      const box = sideEl.querySelector('.stc-side-box');
-      if (!box) return;
-      box.appendChild(row);
-      row.addEventListener('mouseenter', () => {
-        const state = bountyWatchState();
-        if (state.unseen) { state.unseen = false; save(BOUNTY_WATCH_KEY, state); }
-      });
-    }
-    const state = bountyWatchState();
-    row.classList.toggle('stc-new', state.unseen);
-    row.querySelector('[data-bounty-count]').textContent = state.checkedAt ? String(state.ids.length) : '—';
-    row.title = state.error || (state.checkedAt ? 'Available, unclaimed bounties at last check: ' + new Date(state.checkedAt).toLocaleTimeString() : 'Waiting for the next minute check');
-  }
-  function obtainableBountyRows(doc) {
-    const main = doc.querySelector('main');
-    if (!main) throw new Error('Bounty page could not be verified.');
-    const headings = [...main.querySelectorAll('h1,h2,h3,h4,h5,h6')];
-    const heading = headings.find(el => /obtainable/i.test(el.textContent));
-    if (!heading) throw new Error('Obtainable section not found; no notification sent.');
-    let section = heading.parentElement;
-    while (section && section !== main && !section.querySelector('nav a[onclick*="showBounty"]')) section = section.parentElement;
-    if (!section || section === main) {
-      // Only use the whole main column when Obtainable is its sole bounty heading.
-      if (headings.some(el => el !== heading && /all bounties|accepted bounties/i.test(el.textContent))) throw new Error('Bounty section is ambiguous.');
-      section = main;
-    }
-    return [...section.querySelectorAll('a[onclick*="showBounty"]')].filter(row =>
-      ![...row.querySelectorAll('span')].some(el => /^(Ongoing|Accepted)$/i.test(el.textContent.trim()))
-    );
-  }
-  async function checkBountyWatch() {
-    const slot = Math.floor(Date.now() / 60000);
-    if (!settings.backgroundChecks || bountyWatchBusy || !isLeader()) return;
-    const before = bountyWatchState();
-    if (before.slot === slot) return;
-    bountyWatchBusy = true;
-    save(BOUNTY_WATCH_KEY, Object.assign({}, before, { slot }));
-    try {
-      const response = await fetch('/bounties', { credentials: 'same-origin', cache: 'no-store' });
-      if (!response.ok || new URL(response.url).pathname !== '/bounties') throw new Error('Bounty page unavailable or login required.');
-      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-      const rows = obtainableBountyRows(doc);
-      const ids = rows.map(row => {
-        const match = (row.getAttribute('onclick') || '').match(/showBounty\(\s*(?:true|false)\s*,\s*(\d+)/);
-        return match ? match[1] : null;
-      }).filter(Boolean);
-      const added = ids.filter(id => !before.ids.includes(id));
-      save(BOUNTY_WATCH_KEY, { ids, unseen: ids.length > 0 && (before.unseen || added.length > 0), checkedAt: Date.now(), slot, error: '' });
-      if (added.length) cue(added.length + ' new obtainable ' + (added.length === 1 ? 'bounty' : 'bounties') + ' available.');
-    } catch (error) {
-      const state = bountyWatchState();
-      state.error = 'Bounty check failed: ' + error.message;
-      save(BOUNTY_WATCH_KEY, state);
-      console.warn('[SMMO Companion] ' + state.error);
-    } finally { bountyWatchBusy = false; }
-  }
-  setInterval(() => { renderBountyWatch(); checkBountyWatch(); }, 1000);
-
   // ===========================================================================
   // 16. Start
   // ===========================================================================
+  setInterval(checkBountiesBackground, 1000);
   checkSessionIdle();
   noteBattle(PATH);
   buildPageExtras();
@@ -5975,6 +6014,7 @@ const $ = (id) => document.getElementById(id);
     checkVerification();
     checkMessages();
     autoScanCollection();
+    checkBountiesBackground();
   }, 2000);
 })();
 
@@ -5989,16 +6029,16 @@ const $ = (id) => document.getElementById(id);
 (() => {
   'use strict';
   const icons = [
-    ['data-dock-toggle', 'Open chat (Alt+M)', '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/>'],
-    ['data-guild-toggle', 'Guild requirements', '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/>'],
-    ['data-open-hub', 'Open SimpleMMO Hub', '<path d="M4 20h16M6 16v-5m6 5V4m6 12V8"/>'],
-    ['data-open-settings', 'Companion settings (Alt+C)', '<path d="M9.5 3h5l.7 2.5 2 .9 2.3-.7 2.5 4.3-1.7 1.8v2.4l1.7 1.8-2.5 4.3-2.3-.7-2 .9-.7 2.5h-5l-.7-2.5-2-.9-2.3.7L2 16l1.7-1.8v-2.4L2 10l2.5-4.3 2.3.7 2-.9L9.5 3Z" transform="translate(0 -1) scale(1 .95)"/><circle cx="12" cy="12" r="3"/>']
+    ['data-dock-toggle', 'Open chat (Alt+M)', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M8 2C4.262 2 1 4.57 1 8c0 1.86.98 3.486 2.455 4.566a3.472 3.472 0 0 1-.469 1.26.75.75 0 0 0 .713 1.14 6.961 6.961 0 0 0 3.06-1.06c.403.062.818.094 1.241.094 3.738 0 7-2.57 7-6s-3.262-6-7-6ZM5 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm7-1a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM8 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"></path></svg>'],
+    ['data-guild-toggle', 'Guild requirements', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path d="m12 9.525l-5.6 4.35q.475 1.575 1.4 2.863T10 18.9V16q0-.425.288-.712T11 15h2q.425 0 .713.288T14 16v2.9q1.275-.875 2.2-2.162t1.4-2.863zm-6-3.15V11.1q0 .125.013.275t.012.275L12 7l5.975 4.65q0-.125.013-.275T18 11.1V6.375l-6-2.25zM12 21.9q-.175 0-.325-.025t-.3-.075Q8 20.675 6 17.637T4 11.1V6.375q0-.625.363-1.125t.937-.725l6-2.25q.35-.125.7-.125t.7.125l6 2.25q.575.225.938.725T20 6.375V11.1q0 3.5-2 6.538T12.625 21.8q-.15.05-.3.075T12 21.9"></path></svg>'],
+    ['data-open-hub', 'Open SimpleMMO Hub', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path d="M12 22q-2.075 0-3.9-.788t-3.175-2.137T2.788 15.9T2 12t.788-3.9t2.137-3.175T8.1 2.788T12 2t3.9.788t3.175 2.137T21.213 8.1T22 12t-.788 3.9t-2.137 3.175t-3.175 2.138T12 22m-2.9-2.55l1.2-2.75q-1.05-.375-1.812-1.162T7.3 13.7l-2.75 1.15q.575 1.6 1.775 2.8t2.775 1.8M7.3 10.3q.425-1.05 1.188-1.837T10.3 7.3L9.15 4.55q-1.6.6-2.8 1.8t-1.8 2.8zM12 15q1.25 0 2.125-.875T15 12t-.875-2.125T12 9t-2.125.875T9 12t.875 2.125T12 15m2.9 4.45q1.575-.6 2.763-1.787T19.45 14.9l-2.75-1.2q-.375 1.05-1.15 1.813t-1.8 1.187zm1.8-9.2l2.75-1.15q-.6-1.575-1.787-2.762T14.9 4.55l-1.15 2.8q1.025.375 1.775 1.138T16.7 10.25"></path></svg>'],
+    ['data-open-settings', 'Companion settings (Alt+C)', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"></path></svg>']
   ];
   function decorate(side) {
     for (const [attribute, label, drawing] of icons) {
       const button = side.querySelector('.stc-tools [' + attribute + ']');
       if (!button || button.dataset.stcIcon === '1') continue;
-      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + drawing + '</svg>';
+      button.innerHTML = drawing;
       button.dataset.stcIcon = '1';
       button.title = label;
       button.setAttribute('aria-label', label);
