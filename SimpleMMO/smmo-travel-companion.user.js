@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.2.1
+// @version      1.3.1
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -170,6 +170,9 @@ style.textContent = `/* ========================================================
     .stc-pvp.good { background: rgba(34,197,94,.18); color: #22c55e; }
     .stc-pvp.mid { background: rgba(245,158,11,.18); color: #f59e0b; }
     .stc-pvp.bad { background: rgba(239,68,68,.18); color: #ef4444; }
+    .stc-pvp.stc-target-big { margin: 0 0 0 12px; padding: 4px 10px; font-size: 12px; align-self: center; white-space: nowrap; }
+    .stc-pvp .stc-hp-low { color: #ef4444; font-weight: 700; }
+    .stc-pvp.low { box-shadow: inset 0 0 0 1px #ef4444; }
     #stc-sessions { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
     #stc-sessions.open { display: flex; }
     #stc-sessions .stc-win { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
@@ -261,7 +264,7 @@ style.textContent = `/* ========================================================
     #stc-notes-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 16px; }
     #stc-notes-body { position: relative; flex: 1; }
     #stc-notes-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
-  
+
 
 /* ======================================================================
    2. sidebar.css
@@ -1690,6 +1693,7 @@ document.head.appendChild(style);
     blockedItems: 'stc_blocked_items',
     leader: 'stc_leader',
     bounties: 'stc_bounties',
+    players: 'stc_players',   // looked-up players (win chance), kept for 6 hours
   };
 
   const DEFAULT_SETTINGS = {
@@ -1728,6 +1732,8 @@ document.head.appendChild(style);
     messageAlert: true,
     notificationsPopup: true,
     bountyWatch: true,
+    pvpChips: true,      // win chance and HP on player profiles and the Bounties page
+    bountyLowHp: true,   // alert when an obtainable bounty's target drops below 50% HP
     shortcut: true,
     // Market
     energyTarget: 0,  // alert when energy reaches this many points (0 = full)
@@ -2619,7 +2625,7 @@ document.head.appendChild(style);
   function dailyView(id, timers) {
     const d = timers[id];
     if (!d) return muted('Not checked yet');
-    
+
     if (id === 'orphanageBuff') {
       const data = load(KEY.data, {});
       const level = orphanageLevel(data.orphanage || []);
@@ -2994,7 +3000,9 @@ const $ = (id) => document.getElementById(id);
         <label>Messages icon opens chat popup <input type="checkbox" data-key="chatPopup"></label>
         <label>Notifications open in a popup <input type="checkbox" data-key="notificationsPopup"></label>
         <label>Notify me about obtainable bounties <input type="checkbox" data-key="bountyWatch"></label>
+        <label>Alert when an obtainable bounty’s target is below 50% HP <input type="checkbox" data-key="bountyLowHp"></label>
         <div class="stc-note">Read-only checks every minute. Never accepts bounties or spends Quest Points.</div>
+        <label>Win chance and HP on player profiles and the Bounties page <input type="checkbox" data-key="pvpChips"></label>
         <label>Shortcuts: Alt+C settings, Alt+M chat <input type="checkbox" data-key="shortcut"></label>
 
         <div class="stc-section-title" data-blocked-section>Blocked items</div>
@@ -3457,9 +3465,12 @@ const $ = (id) => document.getElementById(id);
     if (bountyRow) {
       bountyRow.style.display = rowShown('bounties') ? '' : 'none';
       bountyRow.classList.toggle('stc-new', bountyInfo.unseen > 0);
-      setHtml(part('[data-s="bounties"]'), bountyInfo.checkedAt ? fmt(bountyInfo.ids.length) : muted('—'));
+      const lowHp = settings.bountyLowHp ? (bountyInfo.low || []) : [];
+      setHtml(part('[data-s="bounties"]'), bountyInfo.checkedAt
+        ? fmt(bountyInfo.ids.length) + (lowHp.length ? ' <span class="stc-warn">(' + lowHp.length + ' low HP)</span>' : '') : muted('—'));
       bountyRow.title = bountyInfo.error || (bountyInfo.checkedAt
-        ? 'Available bounties at last check: ' + new Date(bountyInfo.checkedAt).toLocaleTimeString()
+        ? 'Available bounties at last check: ' + new Date(bountyInfo.checkedAt).toLocaleTimeString() +
+          (lowHp.length ? '\nBelow 50% HP: ' + lowHp.map((l) => l.name + ' (' + l.pct + '%)').join(', ') : '')
         : 'Waiting for first bounty check');
     }
 
@@ -3632,6 +3643,7 @@ const $ = (id) => document.getElementById(id);
     if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
     if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
     if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
+    watchTargets(document);
     if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
   }
 
@@ -4700,7 +4712,52 @@ const $ = (id) => document.getElementById(id);
   // The fight is played out 1,000 times with the community damage formula:
   // a hit does between Str - 11/9 x Def and Str - 9/11 x Def (at least 1 and 20), and lands 3.5 x Dex / Def of the time.
   const battleDocs = [];
-  const opponentStats = {};   // id -> { str, def, dex, hp, at } or { error }
+  // Looked-up players are kept for 6 hours in this browser (shared by all tabs), so the same player isn't
+  // asked for again and again. "at" is when their stats were read, "hpAt" when their HP was.
+  // HP changes faster, so it's read again on its own where it matters (profiles and bounties you can take).
+  const PLAYER_KEEP_MS = 6 * 60 * MIN;
+  const opponentStats = {};   // id -> { str, def, dex, hp, maxHp, safe, name, at, hpAt } or { error, at } (this tab only)
+  let savedPlayers = null;
+  let savedPlayersAt = 0;
+
+  function savedPlayer(id) {
+    if (!savedPlayers || Date.now() - savedPlayersAt > 2000) { savedPlayers = load(KEY.players, {}); savedPlayersAt = Date.now(); }
+    return savedPlayers[id];
+  }
+
+  // What's known about a player: the newest of this tab's and the saved copy, never older than 6 hours.
+  // A stored result wins over a failed lookup.
+  function playerStats(id) {
+    const now = Date.now();
+    const best = [opponentStats[id], savedPlayer(id)]
+      .filter((s) => s && now - s.at < PLAYER_KEEP_MS)
+      .sort((a, b) => (a.error ? 1 : 0) - (b.error ? 1 : 0) || (b.hpAt || b.at) - (a.hpAt || a.at))[0] || null;
+    if (best) opponentStats[id] = best;
+    return best;
+  }
+
+  function storePlayer(id, s) {
+    opponentStats[id] = s;
+    if (s.error) return s; // a failed lookup is tried again in a minute, so it isn't kept
+    update(KEY.players, (all) => {
+      const now = Date.now();
+      all[id] = s;
+      Object.keys(all).forEach((k) => { if (!all[k] || now - all[k].at > PLAYER_KEEP_MS) delete all[k]; });
+      const ids = Object.keys(all);
+      if (ids.length > 500) ids.sort((a, b) => all[a].at - all[b].at).slice(0, ids.length - 500).forEach((k) => delete all[k]);
+    });
+    savedPlayers = null;
+    return s;
+  }
+
+  // The HP a profile page shows right now: keeps the stored stats, only the HP is new
+  function notePageHp(id, hp) {
+    const now = Date.now();
+    const s = playerStats(id);
+    const base = s && !s.error ? s : { hpOnly: true, at: now };
+    if (s && !s.error && s.hp === hp.hp && s.maxHp === hp.maxHp && now - (s.hpAt || s.at) < 30000) return;
+    storePlayer(id, Object.assign({}, base, { hp: hp.hp, maxHp: hp.maxHp, hpAt: now }));
+  }
   const opponentQueue = [];
   let opponentBusy = false;
 
@@ -4734,19 +4791,193 @@ const $ = (id) => document.getElementById(id);
     return t && hp ? { str: t.str, def: t.def, dex: t.dex, hp: hp.current } : null;
   }
 
+  // API requests made in the last minute (all tabs)
+  function apiCallsThisMinute() {
+    return load(KEY.apiCalls, []).filter((t) => Date.now() - t < MIN).length;
+  }
+
+  // The HP shown on a player's profile page ("Health 12,345 / 20,000")
+  function readProfileHp(doc) {
+    const main = doc.querySelector('main');
+    if (!main) return null;
+    const leaves = [...main.querySelectorAll('*')].filter((el) => !el.children.length && el.textContent.trim() === 'Health' && !el.closest('.stc-ui'));
+    for (const leaf of leaves) {
+      let box = leaf.parentElement;
+      for (let i = 0; box && i < 3; i++, box = box.parentElement) {
+        const m = box.textContent.replace(/\s+/g, ' ').match(/Health ([\d,]+) \/ ([\d,]+)/);
+        if (m) return { hp: toNumber(m[1]), maxHp: toNumber(m[2]) };
+      }
+    }
+    return null;
+  }
+
+  let opponentNotBefore = 0;
+
+  // One player's fight stats and HP. With an API key from the Public API; without one, only the HP,
+  // read from their profile page. Returns null when it has to wait for the API budget.
+  async function fetchTarget(id) {
+    if (settings.apiKey) {
+      if (apiCallsThisMinute() >= API_BUDGET - 6) return null; // leave room for the Companion's own checks
+      const result = await apiPost('/v1/player/info/' + id);
+      if (result.status === 'budget') return null;
+      if (!result.data) return storePlayer(id, { error: true, at: Date.now() });
+      const d = result.data;
+      return storePlayer(id, { str: d.str + (d.bonus_str || 0), def: d.def + (d.bonus_def || 0), dex: d.dex + (d.bonus_dex || 0),
+        hp: d.hp, maxHp: d.max_hp, safe: !!d.safeMode, name: d.name, at: Date.now(), hpAt: Date.now() });
+    }
+    const response = await fetch('/user/view/' + id, { credentials: 'same-origin' });
+    const hp = response.ok ? readProfileHp(new DOMParser().parseFromString(await response.text(), 'text/html')) : null;
+    opponentNotBefore = Date.now() + 2000; // page reads stay slow and spread out
+    return storePlayer(id, hp ? Object.assign({ hpOnly: true, at: Date.now(), hpAt: Date.now() }, hp) : { error: true, at: Date.now() });
+  }
+
   async function lookUpOpponents() {
-    if (opponentBusy || !opponentQueue.length) return;
+    if (opponentBusy || !opponentQueue.length || Date.now() < opponentNotBefore) return;
     opponentBusy = true;
     const id = opponentQueue.shift();
     try {
-      const result = await apiPost('/v1/player/info/' + id);
-      if (result.data) {
-        const d = result.data;
-        opponentStats[id] = { str: d.str + (d.bonus_str || 0), def: d.def + (d.bonus_def || 0), dex: d.dex + (d.bonus_dex || 0), hp: d.hp, maxHp: d.max_hp, at: Date.now() };
-      } else if (result.status === 'budget') opponentQueue.unshift(id); // try again in a moment
-      else opponentStats[id] = { error: true, at: Date.now() };
+      if (!(await fetchTarget(id))) { opponentQueue.unshift(id); opponentNotBefore = Date.now() + 5000; } // try again in a moment
     } catch (e) { opponentStats[id] = { error: true, at: Date.now() }; }
     opponentBusy = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Win chance and HP on player profiles and on the Bounties page (also in popups)
+  // ---------------------------------------------------------------------------
+  // Same estimate as the Battle page. A player's stats are looked up once and kept for 6 hours.
+  // Their HP is read again every 2 minutes only for bounties you can take (and only while on screen);
+  // a profile page shows the HP itself, so that costs no request at all.
+  const TARGET_FRESH = 2 * MIN;
+  const targetDocs = [];
+
+  function watchTargets(doc) {
+    const path = doc.defaultView ? doc.defaultView.location.pathname : '';
+    if (!/^\/user\/view\/\d+/.test(path) && !path.startsWith('/bounties')) return;
+    if (!targetDocs.includes(doc)) targetDocs.push(doc);
+  }
+
+  // hpMaxAge: also look them up again when their HP is older than this (0 = the stored HP is fine)
+  function wantTarget(id, hpMaxAge) {
+    const s = playerStats(id);
+    const now = Date.now();
+    const fresh = s && (s.error ? now - s.at < MIN
+      : !(settings.apiKey && s.hpOnly) && (!hpMaxAge || now - (s.hpAt || s.at) < hpMaxAge));
+    if (fresh) return;
+    if (!opponentQueue.includes(id)) opponentQueue.push(id);
+  }
+
+  // showBounty(remove, bountyId, avatar, targetName, targetId, targetLevel, listedBy, listedById, amount, acceptedId)
+  function bountyArgs(row) {
+    const call = (row.getAttribute('onclick') || '').split('showBounty(')[1];
+    if (!call) return null;
+    const args = [];
+    const re = /\s*(?:'((?:\\.|[^'\\])*)'|([^,)]*))\s*([,)])/g;
+    let m;
+    while (args.length < 10 && (m = re.exec(call))) {
+      args.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2].trim());
+      if (m[3] === ')') break;
+    }
+    return /^\d+$/.test(args[1] || '') && /^\d+$/.test(args[4] || '') ? { bountyId: args[1], targetId: args[4], name: args[3], level: args[5] } : null;
+  }
+
+  // "Ongoing" (someone is on it) or "Accepted": not one you can take
+  function bountyTaken(row) {
+    return [...row.querySelectorAll('span')].some((el) => /^(Ongoing|Accepted)$/i.test(el.textContent.trim()));
+  }
+
+  function hpPercent(s) {
+    return s && s.maxHp ? Math.min(100, Math.round(Math.max(0, s.hp) / s.maxHp * 100)) : null; // buffs can push HP over the max
+  }
+
+  function paintTargetChip(chip, id, me, warnLow) {
+    const s = playerStats(id);
+    if (!s) { if (chip.textContent !== 'checking\u2026') { chip.textContent = 'checking\u2026'; chip.className = chip.className.replace(/ (good|mid|bad|low)\b/g, ''); } return; }
+    const sig = JSON.stringify([s, me, warnLow, !!settings.apiKey]);
+    if (chip.dataset.sig === sig) return;
+    chip.dataset.sig = sig;
+    const base = chip.classList.contains('stc-target-big') ? 'stc-pvp stc-ui stc-target stc-target-big' : 'stc-pvp stc-ui stc-target';
+    if (s.error) { chip.textContent = 'win %: unknown'; chip.className = base; chip.title = 'Couldn\u2019t read this player. Tries again in a minute.'; return; }
+    const pct = hpPercent(s);
+    const low = pct !== null && pct < 50;
+    const hp = pct === null ? '' : '<span class="' + (low && warnLow ? 'stc-hp-low' : '') + '">HP ' + pct + '%</span>';
+    const hpAt = s.hpAt || s.at;
+    const checked = s.hpOnly ? ' HP checked ' + timeAgo(hpAt) + '.'
+      : ' Stats checked ' + timeAgo(s.at) + (hpAt - s.at > MIN ? ', HP ' + timeAgo(hpAt) : '') + ' (kept for 6 hours).';
+    let cls = '';
+    let text;
+    let title = pct === null ? '' : 'HP ' + fmt(s.hp) + ' / ' + fmt(s.maxHp) + '.';
+    if (s.safe) { text = 'Safe mode'; title += ' In safe mode, so they can\u2019t be attacked right now.'; }
+    else if (s.hpOnly) { text = 'win %: needs API key'; title += ' Add your API key in Settings to see the win chance.'; }
+    else if (!me) { text = 'win %: your stats not read yet'; }
+    else {
+      const r = winChance(me, s, 1000);
+      const win = Math.round(r.chance * 100);
+      text = win + '% win';
+      cls = win >= 70 ? 'good' : win >= 40 ? 'mid' : 'bad';
+      title = 'Estimate. Their Str ' + fmt(s.str) + ', Def ' + fmt(s.def) + ', Dex ' + fmt(s.dex) + ', ' + title +
+        ' You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%. Profession bonuses aren\u2019t included.';
+    }
+    if (low && warnLow) title += ' Below 50% HP.';
+    chip.className = base + (cls ? ' ' + cls : '') + (low && warnLow ? ' low' : '');
+    chip.innerHTML = escapeHtml(text) + (hp ? ' \u00B7 ' + hp : '');
+    chip.title = (title + checked).trim();
+  }
+
+  function makeTargetChip(doc, id, big) {
+    const chip = doc.createElement('span');
+    chip.className = 'stc-pvp stc-ui stc-target' + (big ? ' stc-target-big' : '');
+    chip.dataset.target = id;
+    return chip;
+  }
+
+  function renderTargetChips() {
+    const me = myFightStats();
+    for (let i = targetDocs.length - 1; i >= 0; i--) {
+      const doc = targetDocs[i];
+      const win = doc.defaultView;
+      if (!win) { targetDocs.splice(i, 1); continue; }
+      if (!settings.pvpChips) { doc.querySelectorAll('.stc-target').forEach((el) => el.remove()); continue; }
+      ensureStyle(doc);
+      const path = win.location.pathname;
+      const mine = String(playerId() || '');
+
+      // A player's profile: next to the Attack button
+      if (/^\/user\/view\/\d+/.test(path)) {
+        const attack = [...doc.querySelectorAll('main a[href*="/user/attack/"]')].find((a) => !a.closest('.stc-ui') && a.offsetParent);
+        const m = attack && attack.getAttribute('href').match(/\/user\/attack\/(\d+)/);
+        if (!m || m[1] === mine) continue;
+        const id = m[1];
+        const group = attack.parentElement;
+        let chip = doc.querySelector('.stc-target-big');
+        if (chip && chip.dataset.target !== id) { chip.remove(); chip = null; }
+        if (!chip) { chip = makeTargetChip(doc, id, true); group.after(chip); }
+        // The HP on this page is the freshest there is, and costs no request
+        const pageHp = readProfileHp(doc);
+        if (pageHp) notePageHp(id, pageHp);
+        if (!document.hidden) wantTarget(id, 0);
+        paintTargetChip(chip, id, me, true);
+        continue;
+      }
+
+      // The Bounties page: on every bounty, checked while it's on screen
+      if (path.startsWith('/bounties')) {
+        doc.querySelectorAll('main a[onclick*="showBounty"]').forEach(function (row) {
+          const b = bountyArgs(row);
+          if (!b || b.targetId === mine) return;
+          let chip = row.querySelector('.stc-target');
+          if (chip && chip.dataset.target !== b.targetId) { chip.remove(); chip = null; }
+          if (!chip) {
+            chip = makeTargetChip(doc, b.targetId, false);
+            (row.querySelector('.truncate > div') || row).appendChild(chip);
+          }
+          const r = row.getBoundingClientRect();
+          const takeable = !bountyTaken(row);
+          if (!document.hidden && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, takeable ? TARGET_FRESH : 0);
+          paintTargetChip(chip, b.targetId, me, takeable);
+        });
+      }
+    }
+    lookUpOpponents();
   }
 
   function renderOpponentChances() {
@@ -4772,11 +5003,11 @@ const $ = (id) => document.getElementById(id);
       });
       doc.querySelectorAll('.stc-pvp').forEach(function (badge) {
         const id = badge.dataset.opponent;
-        const s = opponentStats[id];
+        const s = playerStats(id);
         if (!settings.apiKey) { badge.textContent = 'win %: needs API key'; return; }
-        if (!s || Date.now() - s.at > 15 * MIN) {
+        if (!s || s.hpOnly) {
           if (!opponentQueue.includes(id) && !(s && s.error && Date.now() - s.at < MIN)) opponentQueue.push(id);
-          if (!s) { badge.textContent = 'checking…'; return; }
+          if (!s || s.hpOnly) { badge.textContent = 'checking…'; return; }
         }
         if (s.error) { badge.textContent = 'win %: unknown'; return; }
         if (!me) { badge.textContent = 'win %: your stats not read yet'; return; }
@@ -4970,7 +5201,7 @@ const $ = (id) => document.getElementById(id);
       if (!planners[i].el.isConnected) planners.splice(i, 1);
       else renderPlanner(planners[i]);
     }
-    if (questTick % 2 === 0) { renderCraftHelpers(); renderOpponentChances(); }
+    if (questTick % 2 === 0) { renderCraftHelpers(); renderOpponentChances(); renderTargetChips(); }
     if (questTick % 8 === 0) renderGuildCards();
     if (++questTick % 4 === 0) {
       for (let i = questHelpers.length - 1; i >= 0; i--) {
@@ -5385,17 +5616,38 @@ const $ = (id) => document.getElementById(id);
   let bountyWatchBusy = false;
   function bountyState() { return load(KEY.bounties, BOUNTY_DEFAULTS); }
 
+  // /bounties opens on its "Obtainable" tab (All, Accepted and Listings are other addresses).
+  // Its list is every bounty row on the page; ones marked Ongoing or Accepted can't be taken.
   function obtainableRows(doc) {
     const main = doc.querySelector('main');
     if (!main) throw new Error('Game content not found');
-    const heading = [...main.querySelectorAll('h1,h2,h3,h4,h5,h6')]
-      .find(el => /obtainable/i.test(el.textContent));
-    if (!heading) throw new Error('Obtainable heading not found');
-    let section = heading.parentElement;
-    while (section && section !== main && !section.querySelector('nav')) section = section.parentElement;
-    if (!section || section === main) throw new Error('Cannot safely identify Obtainable list');
-    return [...section.querySelectorAll('a[onclick*="showBounty"]')].filter(row =>
-      ![...row.querySelectorAll('span')].some(el => /^(Ongoing|Accepted)$/i.test(el.textContent.trim())));
+    const tab = [...main.querySelectorAll('nav a')].find((a) => /^Obtainable$/i.test(a.textContent.trim()));
+    if (!tab) throw new Error('Obtainable tab not found');
+    return [...main.querySelectorAll('a[onclick*="showBounty"]')].filter((row) => !bountyTaken(row));
+  }
+
+  // Obtainable bounties whose target is below 50% HP (and not in safe mode). Looks up a few players per check.
+  async function lowHpBounties(rows, previousLow) {
+    const low = [];
+    let looked = 0;
+    for (const row of rows) {
+      const b = bountyArgs(row);
+      if (!b) continue;
+      let s = playerStats(b.targetId);
+      const stale = !s || s.error || (settings.apiKey && s.hpOnly) || Date.now() - (s.hpAt || s.at) > TARGET_FRESH;
+      if (stale && looked < 5) {
+        looked++;
+        try { s = (await fetchTarget(b.targetId)) || s; } catch (e) { /* try next time */ }
+      }
+      const pct = s && !s.error ? hpPercent(s) : null;
+      if (pct === null) { // not known this time: keep what the last check said
+        const before = previousLow.find((l) => l.bounty === b.bountyId);
+        if (before) low.push(before);
+      } else if (pct < 50 && !s.safe) {
+        low.push({ bounty: b.bountyId, target: b.targetId, name: s.name || b.name, level: b.level, pct: pct });
+      }
+    }
+    return low;
   }
 
   async function checkBountiesBackground() {
@@ -5419,10 +5671,22 @@ const $ = (id) => document.getElementById(id);
         return m ? m[1] : null;
       }).filter(Boolean))];
       const added = ids.filter(id => !previous.ids.includes(id));
+      const previousLow = previous.low || [];
+      const low = settings.bountyLowHp ? await lowHpBounties(rows, previousLow) : [];
       const current = bountyState();
       save(KEY.bounties, { ids, unseen: ids.length && (current.unseen || added.length) ? 1 : 0,
-        checkedAt: Date.now(), slot, error: '' });
+        checkedAt: Date.now(), slot, error: '', low });
       if (added.length && rowShown('bounties')) cue(added.length + ' new obtainable ' + (added.length === 1 ? 'bounty' : 'bounties') + ' available.');
+      // Tell you once each time a target drops below 50% HP
+      const newLow = low.filter((l) => !previousLow.some((p) => p.bounty === l.bounty));
+      if (newLow.length && rowShown('bounties')) {
+        const me = myFightStats();
+        cue('Bounty below 50% HP: ' + newLow.map(function (l) {
+          const s = playerStats(l.target);
+          const win = me && s && !s.hpOnly && !s.error ? ' \u00B7 ' + Math.round(winChance(me, s, 1000).chance * 100) + '% win' : '';
+          return l.name + ' (' + l.pct + '% HP' + win + ')';
+        }).join(', '), 740);
+      }
     } catch (error) {
       update(KEY.bounties, state => { state.error = 'Bounty check failed: ' + error.message; }, BOUNTY_DEFAULTS);
       console.warn('[SMMO Companion] Bounty check failed:', error);
@@ -5478,6 +5742,7 @@ const $ = (id) => document.getElementById(id);
         }
         if (where.pathname.startsWith('/crafting') && settings.showPageCards) watchCrafting(doc);
         if (where.pathname.startsWith('/battle') && settings.showPageCards) watchBattle(doc);
+        watchTargets(doc);
         if (where.pathname.startsWith('/guilds/menu') && settings.showPageCards) {
           const gc = doc.querySelector('.web-app-container');
           mountGuildCard(doc, gc && [...gc.children].find((c) => /max-w-/.test(c.className) && c.textContent.trim()));
