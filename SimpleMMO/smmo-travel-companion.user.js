@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.3.4
+// @version      1.4.3
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -262,7 +262,7 @@ style.textContent = `/* ========================================================
     #stc-notes-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 16px; }
     #stc-notes-body { position: relative; flex: 1; }
     #stc-notes-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
-  
+
 
 /* ======================================================================
    2. sidebar.css
@@ -1686,7 +1686,9 @@ document.head.appendChild(style);
     dock: 'stc_dock',
     collection: 'stc_collection',
     guildReq: 'stc_guild_req',
-    statLog: 'stc_stat_log',
+    statLog: 'stc_stat_log',      // old: lifetime totals from the API (no longer used)
+    guildLog: 'stc_guild_log',    // your numbers from the guild's Member Stats page, noted every 30 minutes
+    guildLatest: 'stc_guild_latest', // the most recent reading of that page
     allowGive: 'stc_allow_give',
     blockedItems: 'stc_blocked_items',
     leader: 'stc_leader',
@@ -2285,7 +2287,6 @@ document.head.appendChild(style);
   }
 
   function savePlayer(p) {
-    logStats(p.statistics);
     setTimer('energy', { current: p.current_energy, max: p.max_energy });
     setTimer('qp', { current: p.current_quest_points, max: p.max_quest_points });
     setTimer('hp', { current: p.current_health, max: p.max_health });
@@ -2305,6 +2306,7 @@ document.head.appendChild(style);
         statistics: p.statistics || null,       // NPC kills, quests, tasks...
         membership: !!p.membership,
         guild: p.guild ? p.guild.name : null,
+        guildId: p.guild ? p.guild.id : null,
         seenAt: Date.now()
       };
     });
@@ -2414,8 +2416,18 @@ document.head.appendChild(style);
     return null;
   }
 
+  let guildPageReadAt = 0;
+
   function readCurrentPage() {
     if (PATH.startsWith('/preferences/customisation')) rememberLayoutSetting(parseLayoutSetting(document.documentElement.innerHTML));
+    // Your own Member Stats page in your guild: note your numbers (at most once a minute)
+    const statsPage = PATH.match(/^\/guilds\/view\/(\d+)\/members\/stats\/(\d+)/);
+    if (statsPage && statsPage[2] === String(playerId()) && Date.now() - guildPageReadAt > MIN) {
+      guildPageReadAt = Date.now();
+      update(KEY.data, (d) => { d.guildId = parseInt(statsPage[1], 10); d.guildIdAt = Date.now(); });
+      const entry = readGuildStats(document);
+      if (entry) logGuildStats(entry);
+    }
     if (PATH.startsWith('/bounties')) {
       update(KEY.bounties, (b) => { if (b.unseen) b.unseen = 0; }, BOUNTY_DEFAULTS);
     }
@@ -2656,7 +2668,7 @@ document.head.appendChild(style);
   function dailyView(id, timers) {
     const d = timers[id];
     if (!d) return muted('Not checked yet');
-    
+
     if (id === 'orphanageBuff') {
       const data = load(KEY.data, {});
       const level = orphanageLevel(data.orphanage || []);
@@ -5121,26 +5133,112 @@ const $ = (id) => document.getElementById(id);
   }
 
   // ---------------------------------------------------------------------------
-  // Guild requirements: NPC kills, player kills or steps per day / week / month
+  // Guild requirements: steps, gathering, PvP, PvE or levels per day / week / month
   // ---------------------------------------------------------------------------
-  // Your totals come from the API (statistics) and are noted every 30 minutes, so the start of each period is known.
-  const REQ_TYPES = { npc: 'NPC kills', pvp: 'Player kills', steps: 'Steps' };
+  // Your numbers come from your guild's Member Stats page (/guilds/view/<guild>/members/stats/<you>), the ones that
+  // count for the guild. They're noted every 30 minutes (and right after a period starts), so the start of each period is known.
+  // The keys npc, pvp and steps are kept from earlier versions, so requirements you already set keep working.
+  const REQ_TYPES = { steps: 'Steps (guild)', gather: 'Gathered nodes', pvp: 'PvP kills', npc: 'PvE kills', levels: 'Levels gained' };
+  // Which number on the Member Stats page each type uses
+  const GUILD_STAT_LABELS = { steps: 'Steps Taken', gather: 'Gathered Nodes', pvp: 'PvP Kills', npc: 'PvE Kills' };
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
   function guildReq() {
     return Object.assign({ period: 'weekly', day: 1, hour: 0, mode: 'any', items: [] }, load(KEY.guildReq, {}));
   }
 
-  // Note your totals (at most every 30 minutes; kept for 70 days)
-  function logStats(statistics) {
-    if (!statistics) return;
-    update(KEY.statLog, (log) => {
+  // Your numbers on a Member Stats page: { steps, gather, pvp, npc, levels } (levels = your level)
+  function readGuildStats(doc) {
+    const main = doc.querySelector('main');
+    if (!main) return null;
+    const values = {};
+    main.querySelectorAll('div.flex.justify-between').forEach(function (row) {
+      const parts = [...row.children];
+      if (parts.length < 2) return;
+      const label = parts[0].textContent.replace(/\s+/g, ' ').trim();
+      const value = parts[parts.length - 1].textContent.trim();
+      if (!(label in values) && /^[\d,]+$/.test(value)) values[label] = toNumber(value); // the first one: "Experience contributed" repeats
+    });
+    const entry = {};
+    Object.entries(GUILD_STAT_LABELS).forEach(([type, label]) => { if (label in values) entry[type] = values[label]; });
+    const level = [...main.querySelectorAll('*')].find((el) => !el.children.length && /^Level [\d,]+$/.test(el.textContent.trim()));
+    if (level) entry.levels = toNumber(level.textContent);
+    return Object.keys(entry).length ? entry : null;
+  }
+
+  // Note your numbers. Every reading becomes the "latest"; the log gets a new entry at most every 30 minutes.
+  // Log entries are never changed afterwards, because one of them is the starting point of the period.
+  function logGuildStats(values) {
+    const now = Date.now();
+    const entry = Object.assign({ t: now }, values);
+    const previous = load(KEY.guildLatest, {});
+    const start = reqPeriod(guildReq()).start;
+    update(KEY.guildLog, (log) => {
       const last = log[log.length - 1];
-      const entry = { t: Date.now(), steps: statistics.steps, npc: statistics.npc_kills, pvp: statistics.user_kills };
-      if (last && Date.now() - last.t < 30 * MIN) { log[log.length - 1] = Object.assign(entry, { t: last.t, latest: Date.now() }); return; }
-      log.push(entry);
-      while (log.length && Date.now() - log[0].t > 70 * 86400000) log.shift();
+      // A new period started since the last reading: that reading is the closest one before the start, so keep it
+      if (previous.t && previous.t < start && now >= start && (!last || previous.t > last.t)) log.push(previous);
+      const newest = log[log.length - 1];
+      if (!newest || now - newest.t >= 30 * MIN || (newest.t < start && now >= start)) log.push(entry);
+      while (log.length && now - log[0].t > 70 * 86400000) log.shift();
     }, []);
+    save(KEY.guildLatest, entry);
+  }
+
+  // The most recent reading (or the last log entry, from before this version)
+  function guildLatest() {
+    const latest = load(KEY.guildLatest, {});
+    const log = load(KEY.guildLog, []);
+    const last = log[log.length - 1];
+    if (latest.t && (!last || latest.t >= (last.latest || last.t))) return latest;
+    return last ? Object.assign({}, last, { t: last.latest || last.t }) : null;
+  }
+
+  // Your guild's id: from the API, from a Member Stats page you opened, or from the Guild page
+  async function myGuildId() {
+    const data = load(KEY.data, {});
+    if (data.player && data.player.guildId) return data.player.guildId;
+    if (data.guildId) return data.guildId;
+    if (data.guildIdAt && Date.now() - data.guildIdAt < 6 * 3600000) return null; // looked recently: not in a guild
+    const response = await fetch('/guilds/menu', { credentials: 'same-origin' });
+    const m = response.ok ? (await response.text()).match(/\/guilds\/view\/(\d+)/) : null;
+    update(KEY.data, (d) => { d.guildId = m ? parseInt(m[1], 10) : null; d.guildIdAt = Date.now(); });
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  // In the background: read your Member Stats page every 30 minutes, and right after a period starts.
+  // Only while you have requirements set.
+  let guildStatsBusy = false;
+  let guildStatsRetryAt = 0;
+
+  async function checkGuildStats() {
+    const req = guildReq();
+    if (!settings.backgroundChecks || guildStatsBusy || !req.items.length || Date.now() < guildStatsRetryAt || !isLeader()) return;
+    const latest = guildLatest();
+    const start = reqPeriod(req).start;
+    if (latest && Date.now() - latest.t < 30 * MIN && latest.t >= start) return;
+    await readGuildStatsNow();
+  }
+
+  // Read your Member Stats page right now (the background check, and the Refresh button)
+  async function readGuildStatsNow() {
+    if (guildStatsBusy) return;
+    guildStatsBusy = true;
+    try {
+      const guild = await myGuildId();
+      const me = playerId();
+      if (!guild || !me) throw new Error('not in a guild');
+      const response = await fetch('/guilds/view/' + guild + '/members/stats/' + me, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const entry = readGuildStats(new DOMParser().parseFromString(await response.text(), 'text/html'));
+      if (!entry) throw new Error('numbers not found');
+      logGuildStats(entry);
+      guildStatsRetryAt = 0;
+      update(KEY.data, (d) => { d.guildStatsError = ''; });
+    } catch (e) {
+      guildStatsRetryAt = Date.now() + 10 * MIN;
+      update(KEY.data, (d) => { d.guildStatsError = e.message; });
+    }
+    guildStatsBusy = false;
   }
 
   // Start and end of the current period, in your own time zone
@@ -5162,12 +5260,13 @@ const $ = (id) => document.getElementById(id);
   function reqProgress() {
     const req = guildReq();
     const period = reqPeriod(req);
-    const log = load(KEY.statLog, []);
-    const now = log[log.length - 1];
+    const log = load(KEY.guildLog, []);
+    const now = guildLatest();
     const before = log.filter((e) => (e.latest || e.t) <= period.start).pop();
     const base = before || log.find((e) => e.t >= period.start);
     const items = req.items.map((item) => {
-      const done = now && base ? Math.max(0, now[item.type] - base[item.type]) : null;
+      const done = now && base && typeof now[item.type] === 'number' && typeof base[item.type] === 'number'
+        ? Math.max(0, now[item.type] - base[item.type]) : null;
       return Object.assign({}, item, { done: done, met: done !== null && done >= item.target });
     });
     const met = items.length ? (req.mode === 'all' ? items.every((i) => i.met) : items.some((i) => i.met)) : false;
@@ -5181,7 +5280,10 @@ const $ = (id) => document.getElementById(id);
     const req = p.req;
     const when = (t) => new Date(t).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     let html = '';
-    if (!settings.apiKey) html += '<div class="stc-note stc-warn">Progress needs your API key (Settings).</div>';
+    const info = load(KEY.data, {});
+    const latestRead = guildLatest();
+    const lastRead = latestRead ? latestRead.t : 0;
+    if (req.items.length && info.guildStatsError) html += '<div class="stc-note stc-warn">Couldn\u2019t read your Member Stats page (' + escapeHtml(info.guildStatsError) + '). Trying again in 10 minutes.</div>';
     if (!req.items.length) html += muted('No requirements set yet. Add them below.');
     else {
       html += '<div class="stc-row"><span><b>' + (p.met ? ready('Requirements met') : 'Not met yet') + '</b></span><span class="stc-muted">' +
@@ -5194,6 +5296,11 @@ const $ = (id) => document.getElementById(id);
       });
       if (p.early) html += '<div class="stc-note">Your totals were last noted ' + when(p.early) + ', before this period started, so this may include some earlier progress.</div>';
       if (p.partial) html += '<div class="stc-note">Counting since ' + when(p.since) + ' (when the Companion first saw your totals this period), so earlier progress is missing.</div>';
+      const waitLeft = lastRead ? 30000 - (Date.now() - lastRead) : 0; // at most one refresh per 30 seconds
+      html += '<div class="stc-note">From your guild\u2019s Member Stats page' + (lastRead ? ', read ' + timeAgo(lastRead) : '') + '. Read again every 30 minutes. ' +
+        (guildStatsBusy ? muted('Refreshing\u2026')
+          : waitLeft > 0 ? muted('Refresh again in ' + Math.ceil(waitLeft / 1000) + 's')
+          : '<a href="#" data-req-refresh title="Read your Member Stats page now">Refresh now</a>') + '</div>';
     }
     // Editing
     html += '<div class="stc-section-title" style="margin-top:14px">Requirements</div>' +
@@ -5234,6 +5341,13 @@ const $ = (id) => document.getElementById(id);
       if (t.dataset.reqTarget) change((r) => { r.items[+t.dataset.reqTarget].target = Math.max(1, parseInt(t.value, 10) || 1); });
     });
     container.addEventListener('click', function (e) {
+      if (e.target.closest('[data-req-refresh]')) {
+        e.preventDefault();
+        const done = readGuildStatsNow();
+        renderGuildReq(container); // shows "Refreshing…"
+        done.then(() => renderGuildReq(container));
+        return;
+      }
       if (e.target.closest('[data-req-add]')) change((r) => { r.items.push({ type: 'npc', target: 100 }); });
       const remove = e.target.closest('[data-req-remove]');
       if (remove) change((r) => { r.items.splice(+remove.dataset.reqRemove, 1); });
@@ -6376,6 +6490,7 @@ const $ = (id) => document.getElementById(id);
     checkMessages();
     autoScanCollection();
     checkBountiesBackground();
+    checkGuildStats();
   }, 2000);
 })();
 
