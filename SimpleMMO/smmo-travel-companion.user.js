@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Travel Companion
 // @namespace    https://reacien.dev/
-// @version      1.3.1
+// @version      1.3.4
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -171,8 +171,6 @@ style.textContent = `/* ========================================================
     .stc-pvp.mid { background: rgba(245,158,11,.18); color: #f59e0b; }
     .stc-pvp.bad { background: rgba(239,68,68,.18); color: #ef4444; }
     .stc-pvp.stc-target-big { margin: 0 0 0 12px; padding: 4px 10px; font-size: 12px; align-self: center; white-space: nowrap; }
-    .stc-pvp .stc-hp-low { color: #ef4444; font-weight: 700; }
-    .stc-pvp.low { box-shadow: inset 0 0 0 1px #ef4444; }
     #stc-sessions { position: fixed; inset: 0; z-index: 99995; display: none; align-items: flex-start; justify-content: center; background: rgba(0,0,0,.6); padding: 6vh 12px; }
     #stc-sessions.open { display: flex; }
     #stc-sessions .stc-win { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--stc-card); color: var(--stc-text);
@@ -264,7 +262,7 @@ style.textContent = `/* ========================================================
     #stc-notes-head button { background: none; border: none; color: var(--stc-muted); cursor: pointer; font-size: 16px; }
     #stc-notes-body { position: relative; flex: 1; }
     #stc-notes-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--stc-card); }
-
+  
 
 /* ======================================================================
    2. sidebar.css
@@ -1718,7 +1716,8 @@ document.head.appendChild(style);
     showTravelStrip: true,
     showPageCards: true,
     walkDetailsOpen: false,
-    timeMode: 'clock',   // cooldowns show the local time they're ready; click to switch to countdowns
+    timeMode: 'clock',   // cooldowns show the local time they're ready; click one to switch it to a countdown
+    timeModes: {},       // per cooldown: { qp: 'countdown', ... }; ones not listed use timeMode
     planTarget: '',
     planTime: '',
     questSort: 'game',   // 'game' = the game's own order, 'left' = fewest left first
@@ -1734,6 +1733,7 @@ document.head.appendChild(style);
     bountyWatch: true,
     pvpChips: true,      // win chance and HP on player profiles and the Bounties page
     bountyLowHp: true,   // alert when an obtainable bounty's target drops below 50% HP
+    bountyAttackTab: true, // after you accept a bounty, open that player's attack page in a new tab
     shortcut: true,
     // Market
     energyTarget: 0,  // alert when energy reaches this many points (0 = full)
@@ -2046,6 +2046,9 @@ document.head.appendChild(style);
       return reset + RECHECK_AFTER_END;
     },
 
+    '/tasks/weekly': function (html) { return readTaskReset(html, 'tasksWeekly'); },
+    '/tasks/monthly': function (html) { return readTaskReset(html, 'tasksMonthly'); },
+
     '/orphanage': function (html) {
       const d = readGameData(html);
       if ('orphanage.has_redeemed_daily_buff' in d) {
@@ -2078,6 +2081,15 @@ document.head.appendChild(style);
       return endsAt && endsAt > Date.now() ? endsAt + RECHECK_AFTER_END : null;
     }
   };
+
+  // Weekly and monthly tasks: their page counts down to "new tasks" (seconds since 1970)
+  function readTaskReset(html, id) {
+    const m = html.match(/let countdown\s*=\s*(\d{9,11});(?:\s*countdown\s*=\s*countdown\s*\+\s*(\d+);)?/);
+    if (!m) return null;
+    const reset = (parseInt(m[1], 10) + parseInt(m[2] || '0', 10)) * 1000;
+    setTimer(id, { endsAt: reset });
+    return reset > Date.now() ? reset + RECHECK_AFTER_END : null;
+  }
 
   // Battle Arena: which league you're in and how far along it you are
   function saveArena(tiers) {
@@ -2562,12 +2574,31 @@ document.head.appendChild(style);
     return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + time;
   }
 
-  // When something is ready: the local time, or a countdown. Click it to switch (for all of them).
-  function when(at, now) {
-    const text = settings.timeMode === 'countdown' ? formatDuration(at - now) : clockTime(at);
-    return '<span class="stc-when" data-time-toggle title="Click to switch between clock time and countdown">' + text + '</span>';
+  // When something is ready: the local time, or a countdown. Click one to switch just that one.
+  function timeModeOf(id) {
+    return (id && settings.timeModes && settings.timeModes[id]) || settings.timeMode || 'clock';
   }
-  const atOrIn = () => (settings.timeMode === 'countdown' ? 'in ' : 'at ');
+
+  function when(at, now, id) {
+    const text = timeModeOf(id) === 'countdown' ? formatDuration(at - now) : clockTime(at);
+    const extra = id === 'tasks' ? taskResetsTitle() + '\n\n' : '';
+    return '<span class="stc-when" data-time-toggle="' + (id || '') + '" title="' + escapeHtml(extra + 'Click to switch between clock time and countdown') + '">' + text + '</span>';
+  }
+  const atOrIn = (id) => (timeModeOf(id) === 'countdown' ? 'in ' : 'at ');
+
+  // "23 Nov 13:05" (always English month names, 24-hour time)
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function dayAndTime(at) {
+    const d = new Date(at);
+    return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  // Hover text for the Tasks timer: when the weekly and monthly tasks reset
+  function taskResetsTitle() {
+    const timers = load(KEY.timers, {});
+    const line = (name, t) => name + ' tasks reset: ' + (t && t.endsAt && t.endsAt > Date.now() ? dayAndTime(t.endsAt) : 'not checked yet');
+    return line('Weekly', timers.tasksWeekly) + '\n' + line('Monthly', timers.tasksMonthly);
+  }
 
   // EP / QP: work out the current value from the last reading (+1 at every 5-minute mark),
   // and when it reaches your target (set in Settings; full if you haven't set one).
@@ -2582,16 +2613,16 @@ document.head.appendChild(style);
     const ticks = now >= first ? Math.floor((now - first) / REGEN_MS) + 1 : 0;
     const estimate = Math.min(t.max, t.current + ticks);
     const fullAt = first + (t.max - t.current - 1) * REGEN_MS;
-    const tail = estimate >= t.max ? ' Full' : ' \u00B7 full ' + atOrIn() + when(fullAt, now);
-    const goal = target < t.max ? target + ' ' + atOrIn() : 'full ' + atOrIn();
+    const tail = estimate >= t.max ? ' Full' : ' \u00B7 full ' + atOrIn(id) + when(fullAt, now, id);
+    const goal = target < t.max ? target + ' ' + atOrIn(id) : 'full ' + atOrIn(id);
 
     // Already at the target when it was read: nothing to wait for (and no alert).
     if (t.current >= target) return { html: ready(estimate + '/' + t.max) + muted(tail), compact: ready(estimate >= t.max ? 'Full' : estimate + '/' + t.max), endsAt: null, isReady: true };
     const targetAt = first + (target - t.current - 1) * REGEN_MS;
     if (now >= targetAt) return { html: ready(estimate + '/' + t.max) + muted(tail), compact: ready(estimate >= t.max ? 'Full' : estimate + '/' + t.max), endsAt: targetAt, isReady: true };
     return {
-      html: estimate + '/' + t.max + ' \u00B7 ' + goal + when(targetAt, now),
-      compact: estimate + '/' + t.max + ' ' + muted(when(targetAt, now)),
+      html: estimate + '/' + t.max + ' \u00B7 ' + goal + when(targetAt, now, id),
+      compact: estimate + '/' + t.max + ' ' + muted(when(targetAt, now, id)),
       endsAt: targetAt,
       isReady: false
     };
@@ -2618,14 +2649,14 @@ document.head.appendChild(style);
       const word = id === 'boss' ? 'Now' : 'Ready';
       return { html: label + ready(word), compact: ready(word), endsAt: t.endsAt, isReady: true };
     }
-    const left = when(t.endsAt, now);
+    const left = when(t.endsAt, now, id);
     return { html: label + left, compact: left, endsAt: t.endsAt, isReady: false };
   }
 
   function dailyView(id, timers) {
     const d = timers[id];
     if (!d) return muted('Not checked yet');
-
+    
     if (id === 'orphanageBuff') {
       const data = load(KEY.data, {});
       const level = orphanageLevel(data.orphanage || []);
@@ -3003,6 +3034,7 @@ const $ = (id) => document.getElementById(id);
         <label>Alert when an obtainable bounty’s target is below 50% HP <input type="checkbox" data-key="bountyLowHp"></label>
         <div class="stc-note">Read-only checks every minute. Never accepts bounties or spends Quest Points.</div>
         <label>Win chance and HP on player profiles and the Bounties page <input type="checkbox" data-key="pvpChips"></label>
+        <label>Open the player’s attack page in a new tab after you accept a bounty <input type="checkbox" data-key="bountyAttackTab"></label>
         <label>Shortcuts: Alt+C settings, Alt+M chat <input type="checkbox" data-key="shortcut"></label>
 
         <div class="stc-section-title" data-blocked-section>Blocked items</div>
@@ -3644,6 +3676,7 @@ const $ = (id) => document.getElementById(id);
     if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
     if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
     watchTargets(document);
+    watchBountyAccept(window);
     if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
   }
 
@@ -4074,10 +4107,17 @@ const $ = (id) => document.getElementById(id);
   // Clicks on our parts of the page
   // ---------------------------------------------------------------------------
   document.addEventListener('pointerdown', function (e) {
-    if (!e.target.closest('[data-time-toggle]')) return;
+    const toggle = e.target.closest('[data-time-toggle]');
+    if (!toggle) return;
     e.preventDefault();
     e.stopPropagation();
-    settings.timeMode = settings.timeMode === 'countdown' ? 'clock' : 'countdown';
+    const id = toggle.dataset.timeToggle;
+    if (id) {
+      settings.timeModes = Object.assign({}, settings.timeModes);
+      settings.timeModes[id] = timeModeOf(id) === 'countdown' ? 'clock' : 'countdown';
+    } else {
+      settings.timeMode = settings.timeMode === 'countdown' ? 'clock' : 'countdown';
+    }
     save(KEY.settings, settings);
   }, true);
 
@@ -4845,7 +4885,7 @@ const $ = (id) => document.getElementById(id);
   // Win chance and HP on player profiles and on the Bounties page (also in popups)
   // ---------------------------------------------------------------------------
   // Same estimate as the Battle page. A player's stats are looked up once and kept for 6 hours.
-  // Their HP is read again every 2 minutes only for bounties you can take (and only while on screen);
+  // Orange ones (you'd win, but they're below 50% HP) get their HP read again every 5 minutes while on screen;
   // a profile page shows the HP itself, so that costs no request at all.
   const TARGET_FRESH = 2 * MIN;
   const targetDocs = [];
@@ -4889,23 +4929,32 @@ const $ = (id) => document.getElementById(id);
     return s && s.maxHp ? Math.min(100, Math.round(Math.max(0, s.hp) / s.maxHp * 100)) : null; // buffs can push HP over the max
   }
 
-  function paintTargetChip(chip, id, me, warnLow) {
+  // Win chance colours: red below 75%; green at 75% or more; orange when you'd win but they're below 50% HP.
+  // Orange players have their HP checked again every 5 minutes, and turn green once they're back at 50% or more.
+  const WIN_GOOD = 75;
+  const ORANGE_RECHECK = 5 * MIN;
+  function winColor(win, s) {
+    if (win < WIN_GOOD) return 'bad';
+    const hp = hpPercent(s);
+    return hp !== null && hp < 50 ? 'mid' : 'good';
+  }
+
+  function paintTargetChip(chip, id, me) {
     const s = playerStats(id);
     if (!s) { if (chip.textContent !== 'checking\u2026') { chip.textContent = 'checking\u2026'; chip.className = chip.className.replace(/ (good|mid|bad|low)\b/g, ''); } return; }
-    const sig = JSON.stringify([s, me, warnLow, !!settings.apiKey]);
+    const sig = JSON.stringify([s, me, !!settings.apiKey]);
     if (chip.dataset.sig === sig) return;
     chip.dataset.sig = sig;
     const base = chip.classList.contains('stc-target-big') ? 'stc-pvp stc-ui stc-target stc-target-big' : 'stc-pvp stc-ui stc-target';
+    chip.dataset.color = '';
     if (s.error) { chip.textContent = 'win %: unknown'; chip.className = base; chip.title = 'Couldn\u2019t read this player. Tries again in a minute.'; return; }
     const pct = hpPercent(s);
-    const low = pct !== null && pct < 50;
-    const hp = pct === null ? '' : '<span class="' + (low && warnLow ? 'stc-hp-low' : '') + '">HP ' + pct + '%</span>';
     const hpAt = s.hpAt || s.at;
     const checked = s.hpOnly ? ' HP checked ' + timeAgo(hpAt) + '.'
       : ' Stats checked ' + timeAgo(s.at) + (hpAt - s.at > MIN ? ', HP ' + timeAgo(hpAt) : '') + ' (kept for 6 hours).';
     let cls = '';
     let text;
-    let title = pct === null ? '' : 'HP ' + fmt(s.hp) + ' / ' + fmt(s.maxHp) + '.';
+    let title = pct === null ? '' : 'HP ' + fmt(s.hp) + ' / ' + fmt(s.maxHp) + ' (' + pct + '%).';
     if (s.safe) { text = 'Safe mode'; title += ' In safe mode, so they can\u2019t be attacked right now.'; }
     else if (s.hpOnly) { text = 'win %: needs API key'; title += ' Add your API key in Settings to see the win chance.'; }
     else if (!me) { text = 'win %: your stats not read yet'; }
@@ -4913,14 +4962,32 @@ const $ = (id) => document.getElementById(id);
       const r = winChance(me, s, 1000);
       const win = Math.round(r.chance * 100);
       text = win + '% win';
-      cls = win >= 70 ? 'good' : win >= 40 ? 'mid' : 'bad';
+      cls = winColor(win, s);
+      chip.dataset.color = cls;
       title = 'Estimate. Their Str ' + fmt(s.str) + ', Def ' + fmt(s.def) + ', Dex ' + fmt(s.dex) + ', ' + title +
-        ' You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%. Profession bonuses aren\u2019t included.';
+        ' You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%. Profession bonuses aren\u2019t included.' +
+        (cls === 'mid' ? ' Below 50% HP: checked again every 5 minutes.' : '');
     }
-    if (low && warnLow) title += ' Below 50% HP.';
-    chip.className = base + (cls ? ' ' + cls : '') + (low && warnLow ? ' low' : '');
-    chip.innerHTML = escapeHtml(text) + (hp ? ' \u00B7 ' + hp : '');
+    chip.className = base + (cls ? ' ' + cls : '');
+    chip.textContent = text;
     chip.title = (title + checked).trim();
+  }
+
+  // Players below this level can't be attacked, so they're never looked up
+  const MIN_TARGET_LEVEL = 200;
+
+  function paintLowLevelChip(chip) {
+    chip.dataset.color = '';
+    chip.dataset.sig = 'low-level';
+    chip.className = chip.classList.contains('stc-target-big') ? 'stc-pvp stc-ui stc-target stc-target-big' : 'stc-pvp stc-ui stc-target';
+    if (chip.textContent !== 'Below level ' + MIN_TARGET_LEVEL) chip.textContent = 'Below level ' + MIN_TARGET_LEVEL;
+    chip.title = 'Players below level ' + MIN_TARGET_LEVEL + ' can\u2019t be attacked, so they aren\u2019t checked.';
+  }
+
+  // "Level 3,899" at the top of a profile page
+  function profileLevel(doc) {
+    const leaf = [...doc.querySelectorAll('main *')].find((el) => !el.children.length && !el.closest('.stc-ui') && /^Level [\d,]+$/.test(el.textContent.trim()));
+    return leaf ? toNumber(leaf.textContent) : null;
   }
 
   function makeTargetChip(doc, id, big) {
@@ -4928,6 +4995,29 @@ const $ = (id) => document.getElementById(id);
     chip.className = 'stc-pvp stc-ui stc-target' + (big ? ' stc-target-big' : '');
     chip.dataset.target = id;
     return chip;
+  }
+
+  // When the game confirms you accepted a bounty, open that player's attack page in a new tab.
+  // The game's own window sends the accept; this only watches for its answer. Attacking stays your click.
+  function watchBountyAccept(win) {
+    if (!win || win.__stcBountyAccept || !win.location.pathname.startsWith('/bounties')) return;
+    win.__stcBountyAccept = true;
+    const realFetch = win.fetch;
+    win.fetch = function (input) {
+      const answer = realFetch.apply(this, arguments);
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const m = String(url).match(/\/api\/bounty\/accept\/(\d+)/);
+      if (m && settings.bountyAttackTab) {
+        answer.then((res) => res.clone().json()).then(function (data) {
+          if (!data || data.type !== 'success') return;
+          const b = [...win.document.querySelectorAll('main a[onclick*="showBounty"]')].map(bountyArgs).find((x) => x && x.bountyId === m[1]);
+          if (!b) return;
+          const tab = window.open('/user/attack/' + b.targetId, '_blank');
+          if (!tab) showToast('Bounty accepted. Your browser blocked the new tab: allow pop-ups for this site to open the attack page by itself.');
+        }).catch(() => { /* not the answer we expected: do nothing */ });
+      }
+      return answer;
+    };
   }
 
   function renderTargetChips() {
@@ -4951,11 +5041,13 @@ const $ = (id) => document.getElementById(id);
         let chip = doc.querySelector('.stc-target-big');
         if (chip && chip.dataset.target !== id) { chip.remove(); chip = null; }
         if (!chip) { chip = makeTargetChip(doc, id, true); group.after(chip); }
+        const level = profileLevel(doc);
+        if (level !== null && level < MIN_TARGET_LEVEL) { paintLowLevelChip(chip); continue; }
         // The HP on this page is the freshest there is, and costs no request
         const pageHp = readProfileHp(doc);
         if (pageHp) notePageHp(id, pageHp);
-        if (!document.hidden) wantTarget(id, 0);
-        paintTargetChip(chip, id, me, true);
+        paintTargetChip(chip, id, me);
+        if (!document.hidden) wantTarget(id, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
         continue;
       }
 
@@ -4970,10 +5062,10 @@ const $ = (id) => document.getElementById(id);
             chip = makeTargetChip(doc, b.targetId, false);
             (row.querySelector('.truncate > div') || row).appendChild(chip);
           }
+          if (toNumber(b.level) < MIN_TARGET_LEVEL) { paintLowLevelChip(chip); return; }
           const r = row.getBoundingClientRect();
-          const takeable = !bountyTaken(row);
-          if (!document.hidden && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, takeable ? TARGET_FRESH : 0);
-          paintTargetChip(chip, b.targetId, me, takeable);
+          paintTargetChip(chip, b.targetId, me);
+          if (!document.hidden && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
         });
       }
     }
@@ -5016,10 +5108,13 @@ const $ = (id) => document.getElementById(id);
           const r = winChance(me, s, 1000);
           const pct = Math.round(r.chance * 100);
           badge.textContent = pct + '% win';
-          badge.className = 'stc-pvp stc-ui ' + (pct >= 70 ? 'good' : pct >= 40 ? 'mid' : 'bad');
+          badge.dataset.color = winColor(pct, s);
+          badge.className = 'stc-pvp stc-ui ' + badge.dataset.color;
           badge.title = 'Estimate. Their Str ' + fmt(s.str) + ', Def ' + fmt(s.def) + ', Dex ' + fmt(s.dex) + ', HP ' + fmt(s.hp) +
-            '. You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%.';
+            '. You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%.' +
+            (badge.dataset.color === 'mid' ? ' Below 50% HP: checked again every 5 minutes.' : '');
         }
+        if (badge.dataset.color === 'mid') wantTarget(id, ORANGE_RECHECK);
       });
     }
     lookUpOpponents();
@@ -5632,7 +5727,7 @@ const $ = (id) => document.getElementById(id);
     let looked = 0;
     for (const row of rows) {
       const b = bountyArgs(row);
-      if (!b) continue;
+      if (!b || toNumber(b.level) < MIN_TARGET_LEVEL) continue;
       let s = playerStats(b.targetId);
       const stale = !s || s.error || (settings.apiKey && s.hpOnly) || Date.now() - (s.hpAt || s.at) > TARGET_FRESH;
       if (stale && looked < 5) {
@@ -5743,6 +5838,7 @@ const $ = (id) => document.getElementById(id);
         if (where.pathname.startsWith('/crafting') && settings.showPageCards) watchCrafting(doc);
         if (where.pathname.startsWith('/battle') && settings.showPageCards) watchBattle(doc);
         watchTargets(doc);
+        watchBountyAccept(frame.contentWindow);
         if (where.pathname.startsWith('/guilds/menu') && settings.showPageCards) {
           const gc = doc.querySelector('.web-app-container');
           mountGuildCard(doc, gc && [...gc.children].find((c) => /max-w-/.test(c.className) && c.textContent.trim()));
