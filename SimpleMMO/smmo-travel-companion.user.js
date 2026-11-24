@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         SMMO Travel Companion
+// @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.4.3
-// @description  Walking stats, level progress, cooldowns, chat and page popups, character info and market watch for SimpleMMO. It never clicks or acts in the game for you.
+// @version      1.4.4
+// @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
 // @icon         https://play-lh.googleusercontent.com/2HpPmq4Mikjkk-E30oLLZ6irM0vQZokuy0h00plEvlFsXMypfm7jZ0ysdcO--z3BnRk8_ZXVTt16UpsfaMJBIw
@@ -2417,6 +2417,7 @@ document.head.appendChild(style);
   }
 
   let guildPageReadAt = 0;
+  let initialPageTimersRead = false;
 
   function readCurrentPage() {
     if (PATH.startsWith('/preferences/customisation')) rememberLayoutSetting(parseLayoutSetting(document.documentElement.innerHTML));
@@ -2431,8 +2432,21 @@ document.head.appendChild(style);
     if (PATH.startsWith('/bounties')) {
       update(KEY.bounties, (b) => { if (b.unseen) b.unseen = 0; }, BOUNTY_DEFAULTS);
     }
-    const source = SOURCES[PATH];
-    if (source) scheduleSource(PATH, source(document.documentElement.innerHTML));
+    // Embedded relative durations belong to this page's initial response.
+    // Re-reading them with Date.now() would restart the countdown.
+    const readInitialTimers = !initialPageTimersRead;
+
+    if (readInitialTimers) {
+        initialPageTimersRead = true;
+
+        const source = SOURCES[PATH];
+        if (source) {
+            scheduleSource(
+                PATH,
+                source(document.documentElement.innerHTML)
+            );
+        }
+    }
 
     if (!settings.apiKey) {
       const energy = readPoints('Energy Points');
@@ -2441,7 +2455,9 @@ document.head.appendChild(style);
       if (qp) setTimer('qp', qp);
     }
 
-    if (PATH.startsWith('/crafting')) readCraftingTimer(document.documentElement.innerHTML);
+    if (readInitialTimers && PATH.startsWith('crafting')) {
+      readCraftingTimer(document.documentElement.innerHTML);
+    }
 
     if (isTravelPage) {
       const travel = getTravelData();
@@ -3636,60 +3652,74 @@ const $ = (id) => document.getElementById(id);
   }
 
   function buildPageExtras() {
-    // Companion block
-    if (sideEl && sideEl.isConnected) {
-      const spot = sidebarSpot();
-      if (spot && spot.type !== sideEl.dataset.layout) { sideEl.remove(); sideEl = null; }
-    }
-    document.documentElement.classList.toggle('stc-new-layout', isNewLayout());
-    if (settings.showSidebar && !(sideEl && sideEl.isConnected)) buildSidebar();
-    if (!settings.showSidebar && sideEl) { sideEl.remove(); sideEl = null; }
-    // Without the left menu (narrow screens), show a small settings button instead.
-    mobileBtn.style.display = sideEl && sideEl.isConnected ? 'none' : 'block';
-
-    const container = document.getElementById('complete-travel-container');
-    const onTravel = isTravelPage && container && settings.showTravelStrip;
-
-    // Travel strip, between your banner and the travel scene, with the session details as a dropdown.
-    // The dropdown opens on the right, beside the step button rather than over it.
-    if (onTravel && !(stripWrap && stripWrap.isConnected) && container.firstElementChild) {
-      stripWrap = document.createElement('div');
-      stripWrap.className = 'stc-strip-wrap stc-ui';
-      stripWrap.innerHTML = '<div class="stc-strip"><span class="stc-strip-items"></span>' +
-        '<button class="stc-details-btn" data-toggle-details>Session details <span data-caret>\u25BE</span></button></div>';
-      stripEl = stripWrap.querySelector('.stc-strip-items');
-      walkCard = document.createElement('div');
-      walkCard.id = 'stc-walk';
-      walkCard.className = GAME.card + ' stc-card stc-dropdown';
-      walkCard.innerHTML = walkCardHtml();
-      stripWrap.appendChild(walkCard);
-      container.insertBefore(stripWrap, container.firstElementChild.nextSibling);
-      historyDrawn = null;
-      applyDetailsOpen();
-    }
-    if (!onTravel && stripWrap) {
-      stripWrap.remove();
-      stripWrap = stripEl = walkCard = null;
-    }
-
-    // Cards on other game pages
-    if (settings.showPageCards && !(pageCard && pageCard.isConnected)) {
-      const def = cardForPage();
-      const column = def && mainColumn();
-      if (column) {
-        pageCard = makeCard('stc-page-card', def.title, def.html);
-        column.insertBefore(pageCard, column.firstChild);
-        bindSettingInputs(pageCard);
+      // Companion block.
+      // Only rebuild when the block is actually gone from the DOM (game re-render,
+      // page navigation) or the user toggled showSidebar. Layout flips are handled
+      // by rememberLayoutSetting() (explicit user change) and by page loads —
+      // never re-detected here, because isNewLayout() reads shared localStorage
+      // and DOM probes that can oscillate while the page is open.
+      if (sideEl && !sideEl.isConnected) sideEl = null;
+      document.documentElement.classList.toggle('stc-new-layout', isNewLayout());
+      if (settings.showSidebar && !sideEl) buildSidebar();
+      if (!settings.showSidebar && sideEl) {
+          sideEl.remove();
+          sideEl = null;
       }
-    }
-    if (!settings.showPageCards && pageCard) { pageCard.remove(); pageCard = null; }
-    if (settings.showPageCards && PATH.startsWith('/profession')) mountPlanner(document, mainColumn());
-    if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
-    if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
-    if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
-    watchTargets(document);
-    watchBountyAccept(window);
-    if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
+
+      // Without the left menu (narrow screens), show a small settings button instead.
+      mobileBtn.style.display = sideEl && sideEl.isConnected ? 'none' : 'block';
+
+      const container = document.getElementById('complete-travel-container');
+      const onTravel = isTravelPage && container && settings.showTravelStrip;
+
+      // Travel strip, between your banner and the travel scene, with the session
+      // details as a dropdown. The dropdown opens on the right, beside the step
+      // button rather than over it.
+      if (onTravel && (!stripWrap || !stripWrap.isConnected) && container.firstElementChild) {
+          stripWrap = document.createElement('div');
+          stripWrap.className = 'stc-strip-wrap stc-ui';
+          stripWrap.innerHTML =
+              '<div class="stc-strip"><span class="stc-strip-items"></span>' +
+              '<button class="stc-details-btn" data-toggle-details>Session details <span data-caret>\u25BE</span></button></div>';
+          stripEl = stripWrap.querySelector('.stc-strip-items');
+
+          walkCard = document.createElement('div');
+          walkCard.id = 'stc-walk';
+          walkCard.className = GAME.card + ' stc-card stc-dropdown';
+          walkCard.innerHTML = walkCardHtml();
+          stripWrap.appendChild(walkCard);
+
+          container.insertBefore(stripWrap, container.firstElementChild.nextSibling);
+          historyDrawn = null;
+          applyDetailsOpen();
+      }
+      if (!onTravel && stripWrap) {
+          stripWrap.remove();
+          stripWrap = stripEl = walkCard = null;
+      }
+
+      // Cards on other game pages.
+      if (settings.showPageCards && (!pageCard || !pageCard.isConnected)) {
+          const def = cardForPage();
+          const column = def && mainColumn();
+          if (column) {
+              pageCard = makeCard('stc-page-card', def.title, def.html);
+              column.insertBefore(pageCard, column.firstChild);
+              bindSettingInputs(pageCard);
+          }
+      }
+      if (!settings.showPageCards && pageCard) {
+          pageCard.remove();
+          pageCard = null;
+      }
+
+      if (settings.showPageCards && PATH.startsWith('profession')) mountPlanner(document, mainColumn());
+      if (settings.showPageCards && PATH.startsWith('quests')) mountQuestHelper(document, mainColumn());
+      if (settings.showPageCards && PATH.startsWith('crafting')) watchCrafting(document);
+      if (settings.showPageCards && PATH.startsWith('battle')) watchBattle(document);
+      watchTargets(document);
+      watchBountyAccept(window);
+      if (settings.showPageCards && PATH.startsWith('guilds')) mountGuildCard(document, mainColumn());
   }
 
   function walkCardHtml() {
