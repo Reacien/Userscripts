@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.4.5
+// @version      1.5.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -2417,7 +2417,6 @@ document.head.appendChild(style);
   }
 
   let guildPageReadAt = 0;
-  let initialPageTimersRead = false;
 
   function readCurrentPage() {
     if (PATH.startsWith('/preferences/customisation')) rememberLayoutSetting(parseLayoutSetting(document.documentElement.innerHTML));
@@ -2432,21 +2431,8 @@ document.head.appendChild(style);
     if (PATH.startsWith('/bounties')) {
       update(KEY.bounties, (b) => { if (b.unseen) b.unseen = 0; }, BOUNTY_DEFAULTS);
     }
-    // Embedded relative durations belong to this page's initial response.
-    // Re-reading them with Date.now() would restart the countdown.
-    const readInitialTimers = !initialPageTimersRead;
-
-    if (readInitialTimers) {
-        initialPageTimersRead = true;
-
-        const source = SOURCES[PATH];
-        if (source) {
-            scheduleSource(
-                PATH,
-                source(document.documentElement.innerHTML)
-            );
-        }
-    }
+    const source = SOURCES[PATH];
+    if (source) scheduleSource(PATH, source(document.documentElement.innerHTML));
 
     if (!settings.apiKey) {
       const energy = readPoints('Energy Points');
@@ -2455,9 +2441,7 @@ document.head.appendChild(style);
       if (qp) setTimer('qp', qp);
     }
 
-    if (readInitialTimers && PATH.startsWith('crafting')) {
-      readCraftingTimer(document.documentElement.innerHTML);
-    }
+    if (PATH.startsWith('/crafting')) readCraftingTimer(document.documentElement.innerHTML);
 
     if (isTravelPage) {
       const travel = getTravelData();
@@ -3652,74 +3636,60 @@ const $ = (id) => document.getElementById(id);
   }
 
   function buildPageExtras() {
-      // Companion block.
-      // Only rebuild when the block is actually gone from the DOM (game re-render,
-      // page navigation) or the user toggled showSidebar. Layout flips are handled
-      // by rememberLayoutSetting() (explicit user change) and by page loads —
-      // never re-detected here, because isNewLayout() reads shared localStorage
-      // and DOM probes that can oscillate while the page is open.
-      if (sideEl && !sideEl.isConnected) sideEl = null;
-      document.documentElement.classList.toggle('stc-new-layout', isNewLayout());
-      if (settings.showSidebar && !sideEl) buildSidebar();
-      if (!settings.showSidebar && sideEl) {
-          sideEl.remove();
-          sideEl = null;
+    // Companion block
+    if (sideEl && sideEl.isConnected) {
+      const spot = sidebarSpot();
+      if (spot && spot.type !== sideEl.dataset.layout) { sideEl.remove(); sideEl = null; }
+    }
+    document.documentElement.classList.toggle('stc-new-layout', isNewLayout());
+    if (settings.showSidebar && !(sideEl && sideEl.isConnected)) buildSidebar();
+    if (!settings.showSidebar && sideEl) { sideEl.remove(); sideEl = null; }
+    // Without the left menu (narrow screens), show a small settings button instead.
+    mobileBtn.style.display = sideEl && sideEl.isConnected ? 'none' : 'block';
+
+    const container = document.getElementById('complete-travel-container');
+    const onTravel = isTravelPage && container && settings.showTravelStrip;
+
+    // Travel strip, between your banner and the travel scene, with the session details as a dropdown.
+    // The dropdown opens on the right, beside the step button rather than over it.
+    if (onTravel && !(stripWrap && stripWrap.isConnected) && container.firstElementChild) {
+      stripWrap = document.createElement('div');
+      stripWrap.className = 'stc-strip-wrap stc-ui';
+      stripWrap.innerHTML = '<div class="stc-strip"><span class="stc-strip-items"></span>' +
+        '<button class="stc-details-btn" data-toggle-details>Session details <span data-caret>\u25BE</span></button></div>';
+      stripEl = stripWrap.querySelector('.stc-strip-items');
+      walkCard = document.createElement('div');
+      walkCard.id = 'stc-walk';
+      walkCard.className = GAME.card + ' stc-card stc-dropdown';
+      walkCard.innerHTML = walkCardHtml();
+      stripWrap.appendChild(walkCard);
+      container.insertBefore(stripWrap, container.firstElementChild.nextSibling);
+      historyDrawn = null;
+      applyDetailsOpen();
+    }
+    if (!onTravel && stripWrap) {
+      stripWrap.remove();
+      stripWrap = stripEl = walkCard = null;
+    }
+
+    // Cards on other game pages
+    if (settings.showPageCards && !(pageCard && pageCard.isConnected)) {
+      const def = cardForPage();
+      const column = def && mainColumn();
+      if (column) {
+        pageCard = makeCard('stc-page-card', def.title, def.html);
+        column.insertBefore(pageCard, column.firstChild);
+        bindSettingInputs(pageCard);
       }
-
-      // Without the left menu (narrow screens), show a small settings button instead.
-      mobileBtn.style.display = sideEl && sideEl.isConnected ? 'none' : 'block';
-
-      const container = document.getElementById('complete-travel-container');
-      const onTravel = isTravelPage && container && settings.showTravelStrip;
-
-      // Travel strip, between your banner and the travel scene, with the session
-      // details as a dropdown. The dropdown opens on the right, beside the step
-      // button rather than over it.
-      if (onTravel && (!stripWrap || !stripWrap.isConnected) && container.firstElementChild) {
-          stripWrap = document.createElement('div');
-          stripWrap.className = 'stc-strip-wrap stc-ui';
-          stripWrap.innerHTML =
-              '<div class="stc-strip"><span class="stc-strip-items"></span>' +
-              '<button class="stc-details-btn" data-toggle-details>Session details <span data-caret>\u25BE</span></button></div>';
-          stripEl = stripWrap.querySelector('.stc-strip-items');
-
-          walkCard = document.createElement('div');
-          walkCard.id = 'stc-walk';
-          walkCard.className = GAME.card + ' stc-card stc-dropdown';
-          walkCard.innerHTML = walkCardHtml();
-          stripWrap.appendChild(walkCard);
-
-          container.insertBefore(stripWrap, container.firstElementChild.nextSibling);
-          historyDrawn = null;
-          applyDetailsOpen();
-      }
-      if (!onTravel && stripWrap) {
-          stripWrap.remove();
-          stripWrap = stripEl = walkCard = null;
-      }
-
-      // Cards on other game pages.
-      if (settings.showPageCards && (!pageCard || !pageCard.isConnected)) {
-          const def = cardForPage();
-          const column = def && mainColumn();
-          if (column) {
-              pageCard = makeCard('stc-page-card', def.title, def.html);
-              column.insertBefore(pageCard, column.firstChild);
-              bindSettingInputs(pageCard);
-          }
-      }
-      if (!settings.showPageCards && pageCard) {
-          pageCard.remove();
-          pageCard = null;
-      }
-
-      if (settings.showPageCards && PATH.startsWith('/profession')) mountPlanner(document, mainColumn());
-      if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
-      if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
-      if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
-      watchTargets(document);
-      watchBountyAccept(window);
-      if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
+    }
+    if (!settings.showPageCards && pageCard) { pageCard.remove(); pageCard = null; }
+    if (settings.showPageCards && PATH.startsWith('/profession')) mountPlanner(document, mainColumn());
+    if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
+    if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
+    if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
+    watchTargets(document);
+    watchBountyAccept(window);
+    if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
   }
 
   function walkCardHtml() {
@@ -4790,7 +4760,8 @@ const $ = (id) => document.getElementById(id);
   // ---------------------------------------------------------------------------
   // PvP: chance to beat each generated opponent (Battle page, also in the Battle popup)
   // ---------------------------------------------------------------------------
-  // Their stats come from the Public API (base + gear; a profession bonus isn't included, so it's an estimate).
+  // Their stats come from the Public API (base + gear). Their profession bonus isn't in there, so the fight is played out
+  // once for each likely profession (see PROFESSION_BONUSES) and the chances are averaged. It stays an estimate.
   // The fight is played out 1,000 times with the community damage formula:
   // a hit does between Str - 11/9 x Def and Str - 9/11 x Def (at least 1 and 20), and lands 3.5 x Dex / Def of the time.
   const battleDocs = [];
@@ -4849,6 +4820,51 @@ const $ = (id) => document.getElementById(id);
     return { min: Math.max(1, Math.round(str - def * 11 / 9)), max: Math.max(20, Math.round(str - def * 9 / 11)) };
   }
 
+  // We can't see someone's profession, so every player is assumed to have one of these three.
+  // How high it is depends on their level: "mid" is the bonus at profession level 1,500, "max" at the maximum.
+  const PROFESSION_BONUSES = [
+    { name: 'Warrior', stat: 'str', mid: 2786, max: 4437 },
+    { name: 'Rogue', stat: 'dex', mid: 2787, max: 4438 },
+    { name: 'Defender', stat: 'def', mid: 2787, max: 4438 }
+  ];
+
+  // Player level -> share of the bonus: none below 3,000, "mid" at 5,000-7,000, "max" from 10,000.
+  // In between, it goes up evenly (4,000 = half of "mid", 8,500 = halfway from "mid" to "max").
+  // An unknown level counts as the maximum, to stay on the careful side.
+  function professionBonus(p, level) {
+    if (!(level > 0)) return p.max;
+    const points = [[3000, 0], [5000, p.mid], [7000, p.mid], [10000, p.max]];
+    if (level <= points[0][0]) return 0;
+    if (level >= 10000) return p.max;
+    for (let i = 1; i < points.length; i++) {
+      const [l1, b1] = points[i - 1], [l2, b2] = points[i];
+      if (level <= l2) return Math.round(b1 + (b2 - b1) * (level - l1) / (l2 - l1));
+    }
+    return p.max;
+  }
+
+  // The fight played out once per profession above (with its bonus for their level added); the chance is the average.
+  // "each" holds the three results, for the hover text. Below level 3,000 there's no bonus, so it's one plain fight.
+  function winChanceAvg(me, them, runs) {
+    const bonuses = PROFESSION_BONUSES.map((p) => ({ name: p.name, stat: p.stat, bonus: professionBonus(p, them.level) }));
+    if (bonuses.every((b) => !b.bonus)) return Object.assign({ each: [], level: them.level }, winChance(me, them, runs * 3));
+    const each = bonuses.map(function (b) {
+      const boosted = Object.assign({}, them);
+      boosted[b.stat] = (them[b.stat] || 0) + b.bonus;
+      return Object.assign({ name: b.name, stat: b.stat, bonus: b.bonus }, winChance(me, boosted, runs));
+    });
+    const avg = (key) => each.reduce((sum, r) => sum + r[key], 0) / each.length;
+    return { chance: avg('chance'), myHit: avg('myHit'), theirHit: avg('theirHit'), each: each, level: them.level };
+  }
+
+  // "If they're a Warrior (+2,786 Str) 62% · Rogue (+2,787 Dex) 81% · Defender (+2,787 Def) 74% (average shown)."
+  function professionBreakdown(r) {
+    if (!r.each.length) return 'Below level 3,000, so no profession bonus is counted.';
+    const short = { str: 'Str', dex: 'Dex', def: 'Def' };
+    return 'If they\u2019re a ' + r.each.map((x) => x.name + ' (+' + fmt(x.bonus) + ' ' + short[x.stat] + ') ' + Math.round(x.chance * 100) + '%').join(' \u00B7 ') +
+      ' (average shown' + (r.level ? ', bonus for level ' + fmt(r.level) : ', level unknown so the maximum bonus') + ').';
+  }
+
   function winChance(me, them, runs) {
     const mine = hitRange(me.str, them.def), theirs = hitRange(them.str, me.def);
     const myHit = Math.min(1, them.def > 0 ? 3.5 * me.dex / them.def : 1);
@@ -4905,7 +4921,7 @@ const $ = (id) => document.getElementById(id);
       if (!result.data) return storePlayer(id, { error: true, at: Date.now() });
       const d = result.data;
       return storePlayer(id, { str: d.str + (d.bonus_str || 0), def: d.def + (d.bonus_def || 0), dex: d.dex + (d.bonus_dex || 0),
-        hp: d.hp, maxHp: d.max_hp, safe: !!d.safeMode, name: d.name, at: Date.now(), hpAt: Date.now() });
+        hp: d.hp, maxHp: d.max_hp, safe: !!d.safeMode, name: d.name, level: d.level, at: Date.now(), hpAt: Date.now() });
     }
     const response = await fetch('/user/view/' + id, { credentials: 'same-origin' });
     const hp = response.ok ? readProfileHp(new DOMParser().parseFromString(await response.text(), 'text/html')) : null;
@@ -4943,7 +4959,7 @@ const $ = (id) => document.getElementById(id);
     const s = playerStats(id);
     const now = Date.now();
     const fresh = s && (s.error ? now - s.at < MIN
-      : !(settings.apiKey && s.hpOnly) && (!hpMaxAge || now - (s.hpAt || s.at) < hpMaxAge));
+      : !(settings.apiKey && (s.hpOnly || !s.level)) && (!hpMaxAge || now - (s.hpAt || s.at) < hpMaxAge));
     if (fresh) return;
     if (!opponentQueue.includes(id)) opponentQueue.push(id);
   }
@@ -5001,13 +5017,14 @@ const $ = (id) => document.getElementById(id);
     else if (s.hpOnly) { text = 'win %: needs API key'; title += ' Add your API key in Settings to see the win chance.'; }
     else if (!me) { text = 'win %: your stats not read yet'; }
     else {
-      const r = winChance(me, s, 1000);
+      const r = winChanceAvg(me, s, 1000);
       const win = Math.round(r.chance * 100);
       text = win + '% win';
       cls = winColor(win, s);
       chip.dataset.color = cls;
       title = 'Estimate. Their Str ' + fmt(s.str) + ', Def ' + fmt(s.def) + ', Dex ' + fmt(s.dex) + ', ' + title +
-        ' You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%. Profession bonuses aren\u2019t included.' +
+        ' ' + professionBreakdown(r) +
+        ' You hit about ' + Math.round(r.myHit * 100) + '% of the time, they hit about ' + Math.round(r.theirHit * 100) + '%.' +
         (cls === 'mid' ? ' Below 50% HP: checked again every 5 minutes.' : '');
     }
     chip.className = base + (cls ? ' ' + cls : '');
@@ -5139,21 +5156,22 @@ const $ = (id) => document.getElementById(id);
         const id = badge.dataset.opponent;
         const s = playerStats(id);
         if (!settings.apiKey) { badge.textContent = 'win %: needs API key'; return; }
-        if (!s || s.hpOnly) {
+        if (!s || s.hpOnly || !s.level) {
           if (!opponentQueue.includes(id) && !(s && s.error && Date.now() - s.at < MIN)) opponentQueue.push(id);
-          if (!s || s.hpOnly) { badge.textContent = 'checking…'; return; }
+          if (!s || s.hpOnly || (!s.level && !s.error)) { badge.textContent = 'checking…'; return; }
         }
         if (s.error) { badge.textContent = 'win %: unknown'; return; }
         if (!me) { badge.textContent = 'win %: your stats not read yet'; return; }
         if (badge.dataset.sig !== JSON.stringify([s, me])) {
           badge.dataset.sig = JSON.stringify([s, me]);
-          const r = winChance(me, s, 1000);
+          const r = winChanceAvg(me, s, 1000);
           const pct = Math.round(r.chance * 100);
           badge.textContent = pct + '% win';
           badge.dataset.color = winColor(pct, s);
           badge.className = 'stc-pvp stc-ui ' + badge.dataset.color;
           badge.title = 'Estimate. Their Str ' + fmt(s.str) + ', Def ' + fmt(s.def) + ', Dex ' + fmt(s.dex) + ', HP ' + fmt(s.hp) +
-            '. You hit ' + Math.round(r.myHit * 100) + '% of the time, they hit ' + Math.round(r.theirHit * 100) + '%.' +
+            '. ' + professionBreakdown(r) +
+            ' You hit about ' + Math.round(r.myHit * 100) + '% of the time, they hit about ' + Math.round(r.theirHit * 100) + '%.' +
             (badge.dataset.color === 'mid' ? ' Below 50% HP: checked again every 5 minutes.' : '');
         }
         if (badge.dataset.color === 'mid') wantTarget(id, ORANGE_RECHECK);
@@ -5922,7 +5940,7 @@ const $ = (id) => document.getElementById(id);
         const me = myFightStats();
         cue('Bounty below 50% HP: ' + newLow.map(function (l) {
           const s = playerStats(l.target);
-          const win = me && s && !s.hpOnly && !s.error ? ' \u00B7 ' + Math.round(winChance(me, s, 1000).chance * 100) + '% win' : '';
+          const win = me && s && !s.hpOnly && !s.error ? ' \u00B7 ' + Math.round(winChanceAvg(me, s, 1000).chance * 100) + '% win' : '';
           return l.name + ' (' + l.pct + '% HP' + win + ')';
         }).join(', '), 740);
       }
