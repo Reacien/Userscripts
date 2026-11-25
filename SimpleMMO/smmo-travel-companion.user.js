@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.4.4
+// @version      1.4.5
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -12,8 +12,8 @@
 // @noframes
 // @homepageURL  https://github.com/Reacien/Userscripts/tree/main/SimpleMMO
 // @supportURL   https://github.com/Reacien/Userscripts/issues
-// @downloadURL https://update.greasyfork.org/scripts/604450/SMMO%20Travel%20Companion.user.js
-// @updateURL https://update.greasyfork.org/scripts/604450/SMMO%20Travel%20Companion.meta.js
+// @downloadURL https://update.greasyfork.org/scripts/604450/SMMO%20Companion.user.js
+// @updateURL https://update.greasyfork.org/scripts/604450/SMMO%20Companion.meta.js
 // ==/UserScript==
 
 (function () {
@@ -3713,13 +3713,13 @@ const $ = (id) => document.getElementById(id);
           pageCard = null;
       }
 
-      if (settings.showPageCards && PATH.startsWith('profession')) mountPlanner(document, mainColumn());
-      if (settings.showPageCards && PATH.startsWith('quests')) mountQuestHelper(document, mainColumn());
-      if (settings.showPageCards && PATH.startsWith('crafting')) watchCrafting(document);
-      if (settings.showPageCards && PATH.startsWith('battle')) watchBattle(document);
+      if (settings.showPageCards && PATH.startsWith('/profession')) mountPlanner(document, mainColumn());
+      if (settings.showPageCards && PATH.startsWith('/quests')) mountQuestHelper(document, mainColumn());
+      if (settings.showPageCards && PATH.startsWith('/crafting')) watchCrafting(document);
+      if (settings.showPageCards && PATH.startsWith('/battle')) watchBattle(document);
       watchTargets(document);
       watchBountyAccept(window);
-      if (settings.showPageCards && PATH.startsWith('guilds')) mountGuildCard(document, mainColumn());
+      if (settings.showPageCards && PATH.startsWith('/guilds/menu')) mountGuildCard(document, mainColumn());
   }
 
   function walkCardHtml() {
