@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.2
+// @version      1.6.3
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4828,26 +4828,66 @@ const $ = (id) => document.getElementById(id);
   // "base" is the game's "original value" for that profession rank.
   // NOTE: the level curve is fitted from only two levels (148 and 7,759). More readings are needed,
   // especially above 10,000, before this can be trusted for high-level opponents.
+    // We read the other player's stats page in the background for opponents level 5,000+.
+  // It shows their profession name and rank, which gives us the exact base bonus.
+  // The level curve is still fitted from only two levels (148 and 7,759), so it needs more data.
   const PROFESSION_BONUSES = [
-    { name: 'Warrior', stat: 'str', base: 30 },
-    { name: 'Rogue', stat: 'dex', base: 65 },
-    { name: 'Defender', stat: 'def', base: 100 }
+    { name: 'Warrior', stat: 'str' },
+    { name: 'Rogue', stat: 'dex' },
+    { name: 'Defender', stat: 'def' },
+    { name: 'Guard', stat: 'def' },
+    { name: 'Blacksmith', stat: 'str' },
+    { name: 'Thief', stat: 'dex' },
+    { name: 'Chef', stat: 'dex' },
+    { name: 'Banker', stat: null }
   ];
 
-  // The game shows a bonus of base x level_factor, where level_factor = 0.021 + 0.394 x level^0.21.
-  // Fitted from: level 148 (factor 1.147) and level 7,759 (factor 2.607), across all 18 ranks.
-  // The game's rank 500 row looks bugged (same as rank 350), so it is excluded from the fit.
+  // Rank name -> base bonus, from the game's own data. Same base for every profession at the same rank.
+  const PROFESSION_RANKS = {
+    'Blacksmith Servant': 10, 'Creator of Cutlery': 15, 'Somewhat Adept Blacksmith': 30, 'Sword Maker': 45,
+    'Mr Smith': 70, 'The Creator': 100, 'God of Metal': 150, 'Iron Man': 185, 'Titanium Rocket': 250,
+    'Untethered Strength': 290, 'Two Punch Man': 340, 'Cosmic Strength': 390, 'Celestial Power': 435,
+    'Weyland': 480, 'One Flick Finger': 520, 'The Blacksmith': 550, 'Dr Armstrong': 580, 'Invisible Strength': 610,
+    'Petty Crook': 10, 'Pickpocket': 15, 'Skilled Burglar': 30, 'Hamburgler': 45, 'Identity Thief': 70,
+    'Bank Owner': 100, 'Nigerian Prince': 150, 'Stealer of Hearts': 185, 'Stealer of Souls': 250, 'Mist': 290,
+    'Nothing': 340, 'Dust': 390, 'Sentient Micro Bacteria': 435, 'Reduced to Atoms': 480, 'Pure Hydrogen': 520,
+    'Nucleus': 550, 'Literally Nothing': 580, 'Child of Zimos': 610,
+    'Small Time Adventurer': 30, 'Bodyguard': 65, 'Gladiator': 100, 'Champion of the People': 175,
+    'Legendary Hero': 260, 'Guardian of Simpletopia': 350, "Gall'hars Reincarnation": 350, 'Guardian of Humanity': 650,
+    'Strength of the Sun': 720, 'The Sun Itself': 820, 'Cosmic Wave': 950, 'Peony Star': 1080, 'Dwarf Galaxy': 1200,
+    'Semi Deity': 1310, 'Mostly Deity': 1400, 'Actual Deity': 1510, 'Diminishing Returns': 1600, 'Power Creep': 1720,
+    'Couch Potato': 10, 'Sandwich Artist': 15, 'Finally a Chef': 30, 'Master Chef': 45, 'Lord of the Fries': 70,
+    'One in a Melon': 100, 'God of Meat': 150, 'Kentucky Fried Champion': 185, 'Top Dog': 250, 'Eggsquisite': 290,
+    'A real pizza work': 340, 'The Bloody Muffin Man': 390, 'Dont go bacon my heart': 435, 'Melon Lord': 480,
+    'Gordon Ramsays Dad': 520, 'Spicy Boi': 550, 'Cool Cucumber': 580, 'Moms Spaghetti': 610,
+    'Nightclub Bouncer': 30, 'Supermarket Security': 65, 'Grunt': 100, 'Mr Defender': 175, 'Legendary Defender': 260,
+    'The Defender': 350, 'Ebris Spirit': 350, 'Defender of Humanity': 650, 'Mr Universe': 720, 'Colossus': 820,
+    'Mastodon': 950, 'Titan': 1080, 'Behemoth': 1200, 'Dreadnought': 1310, 'Frigate': 1400, 'Warspite': 1510,
+    'Shield': 1600, 'Keeper': 1720,
+    'A Wall Made From Paper': 10, 'Bodyguard for a Z-List Celebrity': 15, 'A Brick Wall': 30, 'Secret Service': 45,
+    'Legendary Guardian': 70, 'A Tank With Legs': 100, 'A Fortress': 150, 'Titanium Glass House': 185,
+    'The Legendary Guardian': 250, 'Pure Graphene': 290, 'Almost A Literal Rock': 340, 'Dwayne Johnson': 390,
+    'Two Dwayne Johnsons and his dad': 435, 'Stone Cold Steve Austin II': 480, 'Captain Pebble': 520,
+    'A Hardened Potato': 550, 'Donald Trumps Hair': 580, 'A Geordie With No Shirt': 610,
+    'Petty Scammer': 30, 'Dishonest Magician': 65, 'Fraudster': 100, 'Artist of Disguise': 175, 'Hidden Entity': 260,
+    'The Darkness': 350, 'Shadow': 350, 'Myth': 650, 'Legend': 720, "Old Wives' Tale": 820, 'Master of the Arts': 950,
+    'The Unknown': 1080, 'Abyss': 1200, 'Void': 1310, 'Desolate': 1400, 'Null': 1510, 'Gloom': 1600, 'Undefined': 1720
+  };
+
+  // The level curve: bonus = base x (0.021 + 0.394 x level^0.21).
+  // Fitted from level 148 (factor 1.147) and level 7,759 (factor 2.607), across all 18 ranks.
+  // Rank 500 looks bugged (same as rank 350), so it is excluded from the fit.
   // More data is needed, especially above 10,000, to confirm the curve.
   function professionLevelFactor(level) {
     if (!(level > 0)) return 1;
     return 0.021 + 0.394 * Math.pow(level, 0.21);
   }
 
-  // The bonus for a player of the given level, using the rank 1500 base (1,080) as the representative rank.
-  // This is the average across the three likely professions; the actual bonus depends on which rank they have.
-  function professionBonus(p, level) {
-    if (!(level > 0)) return 0;
-    return Math.floor(1080 * professionLevelFactor(level));
+  // The bonus for a player, given their rank's base bonus and their player level.
+  // Banker (and any profession with no stat) gives 0.
+  function professionBonus(base, level) {
+    if (!base) return 0;
+    return Math.floor(base * professionLevelFactor(level));
   }
 function winChanceAvg(me, them, runs) {
     const bonuses = PROFESSION_BONUSES.map((p) => ({ name: p.name, stat: p.stat, bonus: professionBonus(p, them.level) }));
