@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.3
+// @version      1.6.4
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -1703,7 +1703,6 @@ document.head.appendChild(style);
     titleCue: true,
     desktopNotify: false,
     warnMinutes: 0,
-    verifyAlert: true,
     // Walking
     idleResetMinutes: 30,
     resumeSessionOnStep: false,
@@ -2869,15 +2868,6 @@ document.head.appendChild(style);
     if (changed) save(KEY.alerted, alerted);
   }
 
-  // The game sometimes asks you to prove you're human. Tell you, so you can do it yourself.
-  let verifyShown = false;
-  function checkVerification() {
-    if (!settings.verifyAlert) return;
-    const visible = humanCheckShowing();
-    if (visible && !verifyShown) cue('The game wants you to verify you’re human. Open it and complete it yourself.', 330);
-    verifyShown = visible;
-  }
-
   // ===========================================================================
   // 10. Styles (matched to the game's own look: Inter, dark cards, indigo accents)
   // ===========================================================================
@@ -3013,7 +3003,6 @@ const $ = (id) => document.getElementById(id);
         <label>Energy alert at (points, 0 = full) <input type="number" min="0" data-key="energyTarget"></label>
         <label>Quest Points alert at (points, 0 = full) <input type="number" min="0" data-key="qpTarget"></label>
         <label>Early warning (minutes before, 0 = off) <input type="number" min="0" data-key="warnMinutes"></label>
-        <label>Alert when human check appears <input type="checkbox" data-key="verifyAlert"></label>
         <label>Alert on new private messages <input type="checkbox" data-key="messageAlert"></label>
         <label>Tab title when step is ready <input type="checkbox" data-key="titleCue"></label>
         <div class="stc-btns"><button class="${GAME.button2}" id="stc-test">Test sound</button></div>
@@ -3538,7 +3527,6 @@ const $ = (id) => document.getElementById(id);
     // The line between the cooldowns and the rows below only when both have something showing.
     const anyShown = (ids) => ids.some((id) => { const r = part('[data-row="' + id + '"]'); return r && r.style.display !== 'none'; });
     part('[data-s="mid-sep"]').style.display = anyShown(TIMERS.map((d) => d.id)) && anyShown(['orphanageBuff', 'worshipUse', 'orphanage', 'hp', 'messages', 'bounties']) ? '' : 'none';
-    part('[data-s="verify"]').style.display = verifyShown ? '' : 'none';
     const badge = part('[data-s="badge"]');
     badge.textContent = unseenIds.length;
     badge.style.display = unseenIds.length ? 'inline-block' : 'none';
@@ -3980,7 +3968,6 @@ const $ = (id) => document.getElementById(id);
         (info.left <= 0 ? ready('Level up!') : info.steps ? '≈ <b>' + fmt(info.steps) + '</b> steps' : muted('…')) + '</span>');
     }
     if (boosts.length) parts.push('<span>' + boosts.map((b) => '<span class="stc-chip stc-ready">' + escapeHtml(b.name) + ' +' + b.value + '%</span>').join('') + '</span>');
-    if (verifyShown) parts.push('<span class="stc-warn">⚠ Human check waiting</span>');
     setHtml(stripEl, parts.join(''));
   }
 
@@ -6535,7 +6522,6 @@ function winChanceAvg(me, them, runs) {
     backgroundTick();
     apiTick();
     checkAlerts();
-    checkVerification();
     checkMessages();
     autoScanCollection();
     checkBountiesBackground();
