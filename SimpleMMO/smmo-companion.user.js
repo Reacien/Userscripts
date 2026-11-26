@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.5.0
+// @version      1.6.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -3021,7 +3021,7 @@ const $ = (id) => document.getElementById(id);
 
         <div class="stc-section-title" data-prof-levels>Profession levels</div>
         <div class="stc-prof-grid">${PROFESSIONS.map((n) => '<label>' + n + ' <input type="number" min="1" data-prof-level-input="' + n + '"></label>').join('')}</div>
-        <div class="stc-note">Fill in the levels you know. The one you have selected is read from the Profession page by itself, so it stays up to date. The SimpleMMO Hub shows these.</div>
+        <div class="stc-note">Fill in the levels you know. The one you have selected is read from the Profession page by itself, so it stays up to date.</div>
 
         <div class="stc-section-title">Sessions</div>
         <label>Automatically resume a paused session when taking a step <input type="checkbox" data-key="resumeSessionOnStep"></label>
@@ -3403,10 +3403,9 @@ const $ = (id) => document.getElementById(id);
       '</div>';
   }
 
-  const sideTools = '<span class="stc-tools"><button class="stc-icon-btn" title="Chat (Alt+M)" data-dock-toggle>💬</button>' +
-    '<button class="stc-icon-btn" title="Guild requirements" data-guild-toggle>🛡️</button>' +
-    '<button class="stc-icon-btn" title="Open the SimpleMMO Hub with your numbers filled in" data-open-hub>📊</button>' +
-    '<button class="stc-icon-btn" title="Settings (Alt+C)" data-open-settings>⚙</button></span>';
+  const sideTools = '<span class="stc-tools"><button class="stc-icon-btn" title="Chat (Alt+M)" data-dock-toggle></button>' +
+    '<button class="stc-icon-btn" title="Guild requirements" data-guild-toggle></button>' +
+    '<button class="stc-icon-btn" title="Settings (Alt+C)" data-open-settings></button></span>';
 
   function buildSidebar() {
     const spot = sidebarSpot();
@@ -4137,7 +4136,6 @@ const $ = (id) => document.getElementById(id);
     const t = e.target;
     if (t.closest('[data-time-toggle]')) { e.preventDefault(); e.stopPropagation(); return; } // handled on pointerdown
     if (t.closest('[data-open-settings]')) { e.preventDefault(); openSettings(); return; }
-    if (t.closest('[data-open-hub]')) { e.preventDefault(); window.open(HUB_URL + '#stc=' + encodeProfile(), '_blank', 'noopener'); return; }
     if (t.closest('.stc-side [data-side-fold]')) {
       e.preventDefault();
       settings.sideFolded = !settings.sideFolded;
@@ -4886,7 +4884,8 @@ const $ = (id) => document.getElementById(id);
     const p = load(KEY.data, {}).player || {};
     const t = p.stats && p.stats.total;
     const hp = load(KEY.timers, {}).hp;
-    return t && hp ? { str: t.str, def: t.def, dex: t.dex, hp: hp.current } : null;
+    const level = p.level || ((load(KEY.timers, {}).level || {}).level) || 0;
+    return t && hp ? { str: t.str, def: t.def, dex: t.dex, hp: hp.current, level: level } : null;
   }
 
   // API requests made in the last minute (all tabs)
@@ -4997,7 +4996,34 @@ const $ = (id) => document.getElementById(id);
     return hp !== null && hp < 50 ? 'mid' : 'good';
   }
 
-  function paintTargetChip(chip, id, me) {
+  // Players this many levels (or more) below you are counted as a sure win: no lookup, no win chance calculation.
+  // The chip only turns orange when their HP is already known (from a profile page or an earlier lookup) and below 50%.
+  const FAR_BELOW_GAP = 2000;
+  function isFarBelow(me, level) {
+    return !!(me && me.level > 0 && level > 0 && me.level - level >= FAR_BELOW_GAP);
+  }
+
+  function paintFarBelowChip(chip, id) {
+    const s = playerStats(id);
+    const known = s && !s.error;
+    const pct = known ? hpPercent(s) : null;
+    let text = '100% win';
+    let cls = pct !== null && pct < 50 ? 'mid' : 'good';
+    let title = 'They are ' + fmt(FAR_BELOW_GAP) + ' or more levels below you, so no win chance is calculated and it counts as 100%.';
+    if (known && s.safe) { text = 'Safe mode'; cls = ''; title += ' In safe mode, so they can\u2019t be attacked right now.'; }
+    else if (pct !== null) title += ' HP ' + fmt(s.hp) + ' / ' + fmt(s.maxHp) + ' (' + pct + '%).' + (cls === 'mid' ? ' Below 50% HP.' : '');
+    const classes = ['stc-pvp', 'stc-ui'];
+    if (chip.classList.contains('stc-target')) classes.push('stc-target');
+    if (chip.classList.contains('stc-target-big')) classes.push('stc-target-big');
+    const className = classes.join(' ') + (cls ? ' ' + cls : '');
+    chip.dataset.color = cls;
+    if (chip.className !== className) chip.className = className;
+    if (chip.textContent !== text) chip.textContent = text;
+    if (chip.title !== title) chip.title = title;
+  }
+
+  function paintTargetChip(chip, id, me, level) {
+    if (isFarBelow(me, level)) { paintFarBelowChip(chip, id); return; }
     const s = playerStats(id);
     if (!s) { if (chip.textContent !== 'checking\u2026') { chip.textContent = 'checking\u2026'; chip.className = chip.className.replace(/ (good|mid|bad|low)\b/g, ''); } return; }
     const sig = JSON.stringify([s, me, !!settings.apiKey]);
@@ -5105,8 +5131,8 @@ const $ = (id) => document.getElementById(id);
         // The HP on this page is the freshest there is, and costs no request
         const pageHp = readProfileHp(doc);
         if (pageHp) notePageHp(id, pageHp);
-        paintTargetChip(chip, id, me);
-        if (!document.hidden) wantTarget(id, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
+        paintTargetChip(chip, id, me, level);
+        if (!document.hidden && !isFarBelow(me, level)) wantTarget(id, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
         continue;
       }
 
@@ -5123,8 +5149,9 @@ const $ = (id) => document.getElementById(id);
           }
           if (toNumber(b.level) < MIN_TARGET_LEVEL) { paintLowLevelChip(chip); return; }
           const r = row.getBoundingClientRect();
-          paintTargetChip(chip, b.targetId, me);
-          if (!document.hidden && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
+          const targetLevel = toNumber(b.level);
+          paintTargetChip(chip, b.targetId, me, targetLevel);
+          if (!document.hidden && !isFarBelow(me, targetLevel) && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
         });
       }
     }
@@ -5149,12 +5176,14 @@ const $ = (id) => document.getElementById(id);
           const el = doc.createElement('span');
           el.className = 'stc-pvp stc-ui';
           el.dataset.opponent = opp.id;
+          el.dataset.level = String(toNumber(opp.level) || (levelLine ? toNumber(levelLine.textContent) : 0) || '');
           (levelLine ? levelLine.parentElement : card).appendChild(el);
         });
       });
       doc.querySelectorAll('.stc-pvp').forEach(function (badge) {
         const id = badge.dataset.opponent;
         const s = playerStats(id);
+        if (isFarBelow(me, Number(badge.dataset.level) || 0)) { paintFarBelowChip(badge, id); return; }
         if (!settings.apiKey) { badge.textContent = 'win %: needs API key'; return; }
         if (!s || s.hpOnly || !s.level) {
           if (!opponentQueue.includes(id) && !(s && s.error && Date.now() - s.at < MIN)) opponentQueue.push(id);
@@ -5368,7 +5397,7 @@ const $ = (id) => document.getElementById(id);
     return html;
   }
 
-  // One renderer for the guild page card and the 🛡️ popup
+  // One renderer for the guild page card and the popup
   function renderGuildReq(container) {
     if (container.contains(container.ownerDocument.activeElement) && container.ownerDocument.activeElement.matches('input, select')) return;
     setHtml(container, guildReqHtml());
@@ -5402,7 +5431,7 @@ const $ = (id) => document.getElementById(id);
     });
   }
 
-  // The 🛡️ popup from the Companion block
+  // The guild popup from the Companion block
   const guildWin = document.createElement('div');
   guildWin.id = 'stc-guild';
   guildWin.innerHTML = '<div class="stc-win"><div class="stc-win-head"><span>Guild requirements</span>' +
@@ -5497,13 +5526,31 @@ const $ = (id) => document.getElementById(id);
   const SHOP_ITEM_NAMES = [
     'Simple Dagger', 'Bootleg T-Shirt', 'Some Geezers Bow', 'Leather Armour', 'Generic Shirt', 'Cheese',
     'Special Carrot', 'Pie', 'Mushroom of Energy +1', 'Delicious Pie', 'Tree', 'Succulent Leaf', 'Bootleg Cheese',
-    'Mortems Potion', 'Mushroom of Energy +1 (Untradable)', 'Rat', 'Boar', 'Golem',
-    'Rusty Axe', 'Weak Axe', 'Rusty Fishing Rod', 'Weak Fishing Rod', 'Rusty Shovel', 'Weak Shovel',
-    'Rusty Pickaxe', 'Weak Pickaxe', 'Strong Axe', 'Thicc Axe', 'Almost Legendary Axe',
-    'Strong Fishing Rod', 'Super Fishing Rod', 'Epic Fishing Rod', 'Strong Shovel', 'Super Shovel', 'Epic Shovel',
-    'Strong Pickaxe', 'Viking Pickaxe', 'Super Duper Pickaxe'
+    'Mortems Potion', 'Mushroom of Energy +1 (Untradable)', 'The Hamburger', 'The Nokia', 'The Great Wall of China',
+    'Scalpel of Death', 'Rat', 'Boar', 'Golem', 'Zombie', 'Attuned Death', 'Fire Plate', 'Frozen', 'Hatreds Bite',
+    'Ivory Chestplate', 'Sword for Slotths',
+    'Rusty Axe', 'Weak Axe', 'Strong Axe', 'Thicc Axe', 'Almost Legendary Axe',
+    'Rusty Fishing Rod', 'Weak Fishing Rod', 'Strong Fishing Rod', 'Super Fishing Rod', 'Epic Fishing Rod',
+    'Rusty Shovel', 'Weak Shovel', 'Strong Shovel', 'Super Shovel', 'Epic Shovel',
+    'Rusty Pickaxe', 'Weak Pickaxe', 'Strong Pickaxe', 'Viking Pickaxe', 'Super Duper Pickaxe'
   ];
-  const SHOP_ITEMS = new Set(SHOP_ITEM_NAMES.map((n) => n.toLowerCase()));
+  const SHOP_ITEMS = new Set(
+    SHOP_ITEM_NAMES.map(name => name.toLowerCase())
+  );
+
+  // Items that cannot be collected, and therefore cannot be dumped or used in
+  // Town Supply Requests. These are additional to shop items; do not duplicate
+  // names already in SHOP_ITEM_NAMES.
+  const NON_COLLECTIBLE_ITEM_NAMES = [
+    'Bronze Key', 'Silver Key', 'Gold Key', 'Rotten Pumpkin', 'Box of Chocolates'
+  ];
+
+  // Everything that cannot be collected: shop items plus the extra list above.
+  const NON_COLLECTIBLES = new Set(
+    [...SHOP_ITEM_NAMES, ...NON_COLLECTIBLE_ITEM_NAMES].map(name =>
+      name.toLowerCase()
+    )
+  );
 
   // Your own blocked items (names as you typed them; compared without caring about capitals)
   function blockedItemNames() { return load(KEY.blockedItems, []); }
@@ -5523,8 +5570,9 @@ const $ = (id) => document.getElementById(id);
   }
   // Never shown as NEW: shop items and your blocked items
   function neverNew(name) {
-    const key = String(name || '').trim().toLowerCase();
-    return SHOP_ITEMS.has(key) || isItemBlocked(key);
+    const key = String(name).trim().toLowerCase();
+
+    return NON_COLLECTIBLES.has(key) || isItemBlocked(key);
   }
 
   // Pages where you pick an item to give away.
@@ -5573,6 +5621,7 @@ const $ = (id) => document.getElementById(id);
       let reason = null;
       if (SHOP_ITEMS.has(key)) reason = 'shop';
       else if (isItemBlocked(key)) reason = 'blocked';
+      else if (NON_COLLECTIBLES.has(key)) reason =  'nonCollectible';
       else if (collectable && !collectedHere && !names.has(key) && !allowed.has(key)) reason = 'collection';
 
       row.querySelectorAll('a, button').forEach(function (control) {
@@ -5599,6 +5648,7 @@ const $ = (id) => document.getElementById(id);
           span.setAttribute('data-stc-note', reason);
           span.innerHTML = reason === 'shop' ? 'Shop item: not accepted'
             : reason === 'blocked' ? 'On your blocked list · <a href="#" data-stc-unblock="' + escapeHtml(name) + '">unblock</a>'
+            : reason === 'nonCollectible' ? 'Cannot be collected'
             : 'Not in your collection yet · <a href="#" data-stc-allow="' + escapeHtml(key) + '">use anyway</a>' +
               ' · <a href="#" data-stc-block="' + escapeHtml(name) + '">always block</a>';
           control.after(span);
@@ -6063,70 +6113,6 @@ const $ = (id) => document.getElementById(id);
   }, true);
 
   // ---------------------------------------------------------------------------
-  // SimpleMMO Hub: hand your numbers to the guide website
-  // ---------------------------------------------------------------------------
-  // The Hub can't read this site's storage, so the Companion hands it a small summary
-  // (never your API key). Two ways:
-  //  - the 📊 button opens the Hub with the summary in the address after "#" (that part never leaves your browser);
-  //  - the Hub's "Sync" button opens a game page ending in #stc-hub-sync; the Companion answers the Hub
-  //    window that opened it, and closes again.
-  const HUB_URL = 'https://reacien.github.io/smmo-hub/';
-  const HUB_ORIGIN = 'https://reacien.github.io';
-
-  function hubProfile() {
-    const data = load(KEY.data, {});
-    const timers = load(KEY.timers, {});
-    const p = data.player || {};
-    const lv = timers.level || {};
-    const walk = walkingExpPerStep();
-    // Walking pace and gold from your past sessions
-    const history = load(KEY.history, []).filter((h) => h.steps > 20 && h.end > h.start);
-    const steps = history.reduce((a, h) => a + h.steps, 0);
-    const hours = history.reduce((a, h) => a + historyDuration(h), 0) / 3600000;
-    const gold = history.reduce((a, h) => a + (h.gold || 0), 0);
-    const total = p.stats && p.stats.total ? p.stats.total : null;
-    return {
-      v: 1, at: Date.now(),
-      name: p.name || null, level: p.level || lv.level || null,
-      expInto: typeof lv.into === 'number' ? lv.into + (lv.gainedSince || 0) : null,
-      gold: p.gold, diamonds: p.diamonds, steps: p.steps, location: p.location, membership: p.membership,
-      energy: timers.energy ? { current: timers.energy.current, max: timers.energy.max, at: timers.energy.seenAt } : null,
-      qp: timers.qp ? { current: timers.qp.current, max: timers.qp.max, at: timers.qp.seenAt } : null,
-      hp: timers.hp ? { current: timers.hp.current, max: timers.hp.max } : null,
-      stats: total ? { str: total.str, def: total.def, dex: total.dex } : null,
-      freeStatPoints: p.freeStatPoints,
-      skills: Array.isArray(data.skills) ? data.skills.map((x) => ({ skill: x.skill, level: x.level })) : null,
-      walking: {
-        expPerStep: walk.samples ? Math.round(walk.avg) : null,
-        goldPerStep: steps ? Math.round(gold / steps) : null,
-        stepsPerHour: hours > 0.2 ? Math.round(steps / hours) : null
-      },
-      profession: data.profession || null,
-      professions: data.professions || null,
-      boosts: data.boosts || null,                    // travel boosts in %: { exp, gold, itemRarity }
-      arena: data.arena || null,                      // current league and wins          // { Thief: { level, expNeeded, expPerMin }, ... }
-      currentProfession: data.currentProfession || null,
-      marketGoldPerDiamond: data.market && data.market.listings && data.market.listings[0] ? data.market.listings[0].price : null
-    };
-  }
-
-  // JSON -> text that's safe after the "#" in an address
-  function encodeProfile() {
-    return btoa(unescape(encodeURIComponent(JSON.stringify(hubProfile())))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
-  // Opened by the Hub's Sync button
-  if (location.hash === '#stc-hub-sync') {
-    history.replaceState(null, '', location.pathname + location.search);
-    if (window.opener) {
-      window.opener.postMessage({ type: 'stc-profile', profile: hubProfile() }, HUB_ORIGIN); // only arrives if the opener is the Hub
-      setTimeout(() => window.close(), 300);
-    } else {
-      location.replace(HUB_URL + '#stc=' + encodeProfile());
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // The human check always opens in the page popup
   // ---------------------------------------------------------------------------
   // The game's "make sure you're a human" message links to the checkpoint with target="_blank" (a new tab),
@@ -6555,7 +6541,6 @@ const $ = (id) => document.getElementById(id);
   const icons = [
     ['data-dock-toggle', 'Open chat (Alt+M)', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M8 2C4.262 2 1 4.57 1 8c0 1.86.98 3.486 2.455 4.566a3.472 3.472 0 0 1-.469 1.26.75.75 0 0 0 .713 1.14 6.961 6.961 0 0 0 3.06-1.06c.403.062.818.094 1.241.094 3.738 0 7-2.57 7-6s-3.262-6-7-6ZM5 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm7-1a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM8 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"></path></svg>'],
     ['data-guild-toggle', 'Guild requirements', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path d="m12 9.525l-5.6 4.35q.475 1.575 1.4 2.863T10 18.9V16q0-.425.288-.712T11 15h2q.425 0 .713.288T14 16v2.9q1.275-.875 2.2-2.162t1.4-2.863zm-6-3.15V11.1q0 .125.013.275t.012.275L12 7l5.975 4.65q0-.125.013-.275T18 11.1V6.375l-6-2.25zM12 21.9q-.175 0-.325-.025t-.3-.075Q8 20.675 6 17.637T4 11.1V6.375q0-.625.363-1.125t.937-.725l6-2.25q.35-.125.7-.125t.7.125l6 2.25q.575.225.938.725T20 6.375V11.1q0 3.5-2 6.538T12.625 21.8q-.15.05-.3.075T12 21.9"></path></svg>'],
-    ['data-open-hub', 'Open SimpleMMO Hub', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path d="M12 22q-2.075 0-3.9-.788t-3.175-2.137T2.788 15.9T2 12t.788-3.9t2.137-3.175T8.1 2.788T12 2t3.9.788t3.175 2.137T21.213 8.1T22 12t-.788 3.9t-2.137 3.175t-3.175 2.138T12 22m-2.9-2.55l1.2-2.75q-1.05-.375-1.812-1.162T7.3 13.7l-2.75 1.15q.575 1.6 1.775 2.8t2.775 1.8M7.3 10.3q.425-1.05 1.188-1.837T10.3 7.3L9.15 4.55q-1.6.6-2.8 1.8t-1.8 2.8zM12 15q1.25 0 2.125-.875T15 12t-.875-2.125T12 9t-2.125.875T9 12t.875 2.125T12 15m2.9 4.45q1.575-.6 2.763-1.787T19.45 14.9l-2.75-1.2q-.375 1.05-1.15 1.813t-1.8 1.187zm1.8-9.2l2.75-1.15q-.6-1.575-1.787-2.762T14.9 4.55l-1.15 2.8q1.025.375 1.775 1.138T16.7 10.25"></path></svg>'],
     ['data-open-settings', 'Companion settings (Alt+C)', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="stc-tool-icon" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"></path></svg>']
   ];
   function decorate(side) {
