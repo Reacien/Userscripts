@@ -36,7 +36,7 @@ It can fill in a suggested profession shift duration, but you choose the shift a
 - Get an optional warning before a cooldown ends.
 - Open game pages in popups, including Inventory, Battle, Quests, Crafting, Profession, Tasks, notifications, chat and the human check.
 - Plan profession shifts around cooldowns, quests or a time you choose; the planner can fill in the shift duration, but you still start the shift yourself.
-- Track Arena league profess, configurable gild requirements, opponent win chances and profession-rank work.
+- Track Arena league progress, configurable guild requirements, opponent win chances and profession-rank work.
 - Monitor obtainable bounties, show target HP and estimated win chances, and optionally open a target's attack page after you accept a bounty.
 - Back up and restore settings, sessions and collection data; the API key is excluded from backups.
 - Optionally connect a SimpleMMO Public API key for player statistics, skills, orphanage data, world-boss details and Diamond Market watching.
@@ -71,7 +71,7 @@ It can fill in a suggested profession shift duration, but you choose the shift a
 
 ### Pages in popups
 - Can open game pages in a popup, including Inventory, Battle, Quests, Crafting, Profession, Tasks, notifications, chat and the human check.
-- Lets Travel remain your main page wile you handle other activities.
+- Lets Travel remain your main page while you handle other activities.
 - Works from any SimpleMMO page, not only Travel.
 - You can choose whether popups are available everywhere or only while you are on Travel.
 
