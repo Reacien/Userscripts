@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.1
+// @version      1.6.2
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4138,6 +4138,7 @@ const $ = (id) => document.getElementById(id);
     const t = e.target;
     if (t.closest('[data-time-toggle]')) { e.preventDefault(); e.stopPropagation(); return; } // handled on pointerdown
     if (t.closest('[data-open-settings]')) { e.preventDefault(); openSettings(); return; }
+    if (t.closest('[data-open-hub]')) { e.preventDefault(); window.open(HUB_URL + '#stc=' + encodeProfile(), '_blank', 'noopener'); return; }
     if (t.closest('.stc-side [data-side-fold]')) {
       e.preventDefault();
       settings.sideFolded = !settings.sideFolded;
@@ -4822,30 +4823,33 @@ const $ = (id) => document.getElementById(id);
 
   // We can't see someone's profession, so every player is assumed to have one of these three.
   // How high it is depends on their level: "mid" is the bonus at profession level 1,500, "max" at the maximum.
+    // We can't see someone's profession, so every player is assumed to have one of these three.
+  // The bonus is the same for every profession; only the stat it boosts changes.
+  // "base" is the game's "original value" for that profession rank.
+  // NOTE: the level curve is fitted from only two levels (148 and 7,759). More readings are needed,
+  // especially above 10,000, before this can be trusted for high-level opponents.
   const PROFESSION_BONUSES = [
-    { name: 'Warrior', stat: 'str', mid: 2786, max: 4437 },
-    { name: 'Rogue', stat: 'dex', mid: 2787, max: 4438 },
-    { name: 'Defender', stat: 'def', mid: 2787, max: 4438 }
+    { name: 'Warrior', stat: 'str', base: 30 },
+    { name: 'Rogue', stat: 'dex', base: 65 },
+    { name: 'Defender', stat: 'def', base: 100 }
   ];
 
-  // Player level -> share of the bonus: none below 3,000, "mid" at 5,000-7,000, "max" from 10,000.
-  // In between, it goes up evenly (4,000 = half of "mid", 8,500 = halfway from "mid" to "max").
-  // An unknown level counts as the maximum, to stay on the careful side.
-  function professionBonus(p, level) {
-    if (!(level > 0)) return p.max;
-    const points = [[3000, 0], [5000, p.mid], [7000, p.mid], [10000, p.max]];
-    if (level <= points[0][0]) return 0;
-    if (level >= 10000) return p.max;
-    for (let i = 1; i < points.length; i++) {
-      const [l1, b1] = points[i - 1], [l2, b2] = points[i];
-      if (level <= l2) return Math.round(b1 + (b2 - b1) * (level - l1) / (l2 - l1));
-    }
-    return p.max;
+  // The game shows a bonus of base x level_factor, where level_factor = 0.021 + 0.394 x level^0.21.
+  // Fitted from: level 148 (factor 1.147) and level 7,759 (factor 2.607), across all 18 ranks.
+  // The game's rank 500 row looks bugged (same as rank 350), so it is excluded from the fit.
+  // More data is needed, especially above 10,000, to confirm the curve.
+  function professionLevelFactor(level) {
+    if (!(level > 0)) return 1;
+    return 0.021 + 0.394 * Math.pow(level, 0.21);
   }
 
-  // The fight played out once per profession above (with its bonus for their level added); the chance is the average.
-  // "each" holds the three results, for the hover text. Below level 3,000 there's no bonus, so it's one plain fight.
-  function winChanceAvg(me, them, runs) {
+  // The bonus for a player of the given level, using the rank 1500 base (1,080) as the representative rank.
+  // This is the average across the three likely professions; the actual bonus depends on which rank they have.
+  function professionBonus(p, level) {
+    if (!(level > 0)) return 0;
+    return Math.floor(1080 * professionLevelFactor(level));
+  }
+function winChanceAvg(me, them, runs) {
     const bonuses = PROFESSION_BONUSES.map((p) => ({ name: p.name, stat: p.stat, bonus: professionBonus(p, them.level) }));
     if (bonuses.every((b) => !b.bonus)) return Object.assign({ each: [], level: them.level }, winChance(me, them, runs * 3));
     const each = bonuses.map(function (b) {
@@ -4886,8 +4890,7 @@ const $ = (id) => document.getElementById(id);
     const p = load(KEY.data, {}).player || {};
     const t = p.stats && p.stats.total;
     const hp = load(KEY.timers, {}).hp;
-    const level = p.level || ((load(KEY.timers, {}).level || {}).level) || 0;
-    return t && hp ? { str: t.str, def: t.def, dex: t.dex, hp: hp.current, level: level } : null;
+    return t && hp ? { str: t.str, def: t.def, dex: t.dex, hp: hp.current } : null;
   }
 
   // API requests made in the last minute (all tabs)
@@ -4998,34 +5001,7 @@ const $ = (id) => document.getElementById(id);
     return hp !== null && hp < 50 ? 'mid' : 'good';
   }
 
-  // Players this many levels (or more) below you are counted as a sure win: no lookup, no win chance calculation.
-  // The chip only turns orange when their HP is already known (from a profile page or an earlier lookup) and below 50%.
-  const FAR_BELOW_GAP = 2000;
-  function isFarBelow(me, level) {
-    return !!(me && me.level > 0 && level > 0 && me.level - level >= FAR_BELOW_GAP);
-  }
-
-  function paintFarBelowChip(chip, id) {
-    const s = playerStats(id);
-    const known = s && !s.error;
-    const pct = known ? hpPercent(s) : null;
-    let text = '100% win';
-    let cls = pct !== null && pct < 50 ? 'mid' : 'good';
-    let title = 'They are ' + fmt(FAR_BELOW_GAP) + ' or more levels below you, so no win chance is calculated and it counts as 100%.';
-    if (known && s.safe) { text = 'Safe mode'; cls = ''; title += ' In safe mode, so they can\u2019t be attacked right now.'; }
-    else if (pct !== null) title += ' HP ' + fmt(s.hp) + ' / ' + fmt(s.maxHp) + ' (' + pct + '%).' + (cls === 'mid' ? ' Below 50% HP.' : '');
-    const classes = ['stc-pvp', 'stc-ui'];
-    if (chip.classList.contains('stc-target')) classes.push('stc-target');
-    if (chip.classList.contains('stc-target-big')) classes.push('stc-target-big');
-    const className = classes.join(' ') + (cls ? ' ' + cls : '');
-    chip.dataset.color = cls;
-    if (chip.className !== className) chip.className = className;
-    if (chip.textContent !== text) chip.textContent = text;
-    if (chip.title !== title) chip.title = title;
-  }
-
-  function paintTargetChip(chip, id, me, level) {
-    if (isFarBelow(me, level)) { paintFarBelowChip(chip, id); return; }
+  function paintTargetChip(chip, id, me) {
     const s = playerStats(id);
     if (!s) { if (chip.textContent !== 'checking\u2026') { chip.textContent = 'checking\u2026'; chip.className = chip.className.replace(/ (good|mid|bad|low)\b/g, ''); } return; }
     const sig = JSON.stringify([s, me, !!settings.apiKey]);
@@ -5133,8 +5109,8 @@ const $ = (id) => document.getElementById(id);
         // The HP on this page is the freshest there is, and costs no request
         const pageHp = readProfileHp(doc);
         if (pageHp) notePageHp(id, pageHp);
-        paintTargetChip(chip, id, me, level);
-        if (!document.hidden && !isFarBelow(me, level)) wantTarget(id, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
+        paintTargetChip(chip, id, me);
+        if (!document.hidden) wantTarget(id, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
         continue;
       }
 
@@ -5151,9 +5127,8 @@ const $ = (id) => document.getElementById(id);
           }
           if (toNumber(b.level) < MIN_TARGET_LEVEL) { paintLowLevelChip(chip); return; }
           const r = row.getBoundingClientRect();
-          const targetLevel = toNumber(b.level);
-          paintTargetChip(chip, b.targetId, me, targetLevel);
-          if (!document.hidden && !isFarBelow(me, targetLevel) && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
+          paintTargetChip(chip, b.targetId, me);
+          if (!document.hidden && r.bottom > 0 && r.top < win.innerHeight) wantTarget(b.targetId, chip.dataset.color === 'mid' ? ORANGE_RECHECK : 0);
         });
       }
     }
@@ -5178,14 +5153,12 @@ const $ = (id) => document.getElementById(id);
           const el = doc.createElement('span');
           el.className = 'stc-pvp stc-ui';
           el.dataset.opponent = opp.id;
-          el.dataset.level = String(toNumber(opp.level) || (levelLine ? toNumber(levelLine.textContent) : 0) || '');
           (levelLine ? levelLine.parentElement : card).appendChild(el);
         });
       });
       doc.querySelectorAll('.stc-pvp').forEach(function (badge) {
         const id = badge.dataset.opponent;
         const s = playerStats(id);
-        if (isFarBelow(me, Number(badge.dataset.level) || 0)) { paintFarBelowChip(badge, id); return; }
         if (!settings.apiKey) { badge.textContent = 'win %: needs API key'; return; }
         if (!s || s.hpOnly || !s.level) {
           if (!opponentQueue.includes(id) && !(s && s.error && Date.now() - s.at < MIN)) opponentQueue.push(id);
