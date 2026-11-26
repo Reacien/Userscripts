@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.4
+// @version      1.6.5
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4951,8 +4951,19 @@ function winChanceAvg(me, them, runs) {
       if (result.status === 'budget') return null;
       if (!result.data) return storePlayer(id, { error: true, at: Date.now() });
       const d = result.data;
-      return storePlayer(id, { str: d.str + (d.bonus_str || 0), def: d.def + (d.bonus_def || 0), dex: d.dex + (d.bonus_dex || 0),
-        hp: d.hp, maxHp: d.max_hp, safe: !!d.safeMode, name: d.name, level: d.level, at: Date.now(), hpAt: Date.now() });
+      const base = { str: d.str + (d.bonus_str || 0), def: d.def + (d.bonus_def || 0), dex: d.dex + (d.bonus_dex || 0),
+        hp: d.hp, maxHp: d.max_hp, safe: !!d.safeMode, name: d.name, level: d.level, at: Date.now(), hpAt: Date.now() };
+      // Read the stats page too for high-level opponents (5,000+) to get profession name and rank.
+      if (base.level >= 5000) {
+        try {
+          const statsResponse = await fetch('/user/view/' + id + '/stats', { credentials: 'same-origin' });
+          if (statsResponse.ok) {
+            const profession = readProfessionFromStats(new DOMParser().parseFromString(await statsResponse.text(), 'text/html'));
+            if (profession) Object.assign(base, profession);
+          }
+        } catch (e) { /* ignore, fall back to no bonus */ }
+      }
+      return storePlayer(id, base);
     }
     const response = await fetch('/user/view/' + id, { credentials: 'same-origin' });
     const hp = response.ok ? readProfileHp(new DOMParser().parseFromString(await response.text(), 'text/html')) : null;
