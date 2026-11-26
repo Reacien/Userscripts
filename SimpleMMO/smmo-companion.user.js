@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.0
+// @version      1.6.1
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -3364,7 +3364,9 @@ const $ = (id) => document.getElementById(id);
     job: '/img/icons/I_GoldBar.png',
     crafting: '/img/icons/two/32px/Hammer_32.png',
     worship: '/img/icons/S_Holy02.png',
+    worshipBuff: '/img/icons/S_Holy02.png',
     worshipUse: '/img/icons/S_Holy02.png',
+    safeMode: '/img/icons/one/icon601.png',
     tasks: '/img/icons/I_Scroll02.png',
     boss: '/img/icons/S_Dagger02.png',
     arena: '/img/icons/S_Fire05.png',
