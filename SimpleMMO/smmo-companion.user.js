@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.6
+// @version      1.6.7
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4940,6 +4940,25 @@ const $ = (id) => document.getElementById(id);
         const m = box.textContent.replace(/\s+/g, ' ').match(/Health ([\d,]+) \/ ([\d,]+)/);
         if (m) return { hp: toNumber(m[1]), maxHp: toNumber(m[2]) };
       }
+    }
+    return null;
+  }
+
+  // Read profession name and rank from another player's stats page.
+  function readProfessionFromStats(doc) {
+    const main = doc.querySelector('main');
+    if (!main) return null;
+    const skip = new Set(['Strength', 'Defence', 'Dexterity', 'spATK Damage', 'Reputation']);
+    const cards = [...main.querySelectorAll('div.grid > div')];
+    for (const card of cards) {
+      const ps = card.querySelectorAll('p');
+      if (ps.length < 2) continue;
+      const name = ps[0].textContent.trim();
+      const rank = ps[1].textContent.trim();
+      if (skip.has(name)) continue;
+      if (!PROFESSIONS.includes(name)) continue;
+      const bonusEntry = PROFESSION_BONUSES.find((p) => p.name === name) || {};
+      return { professionName: name, professionRank: rank, professionStat: bonusEntry.stat || null };
     }
     return null;
   }
