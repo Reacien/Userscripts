@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.5
+// @version      1.6.6
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4876,24 +4876,28 @@ const $ = (id) => document.getElementById(id);
     if (!base) return 0;
     return Math.floor(base * professionLevelFactor(level));
   }
-function winChanceAvg(me, them, runs) {
-    const bonuses = PROFESSION_BONUSES.map((p) => ({ name: p.name, stat: p.stat, bonus: professionBonus(p, them.level) }));
-    if (bonuses.every((b) => !b.bonus)) return Object.assign({ each: [], level: them.level }, winChance(me, them, runs * 3));
-    const each = bonuses.map(function (b) {
-      const boosted = Object.assign({}, them);
-      boosted[b.stat] = (them[b.stat] || 0) + b.bonus;
-      return Object.assign({ name: b.name, stat: b.stat, bonus: b.bonus }, winChance(me, boosted, runs));
-    });
-    const avg = (key) => each.reduce((sum, r) => sum + r[key], 0) / each.length;
-    return { chance: avg('chance'), myHit: avg('myHit'), theirHit: avg('theirHit'), each: each, level: them.level };
+
+  function winChanceAvg(me, them, runs) {
+    const rankName = them.professionRank;
+    const base = rankName ? (PROFESSION_RANKS[rankName] || 0) : 0;
+    const bonus = professionBonus(base, them.level);
+    const stat = them.professionStat || (rankName ? (PROFESSION_BONUSES.find((p) => p.name === them.professionName) || {}).stat : null);
+    if (!bonus || !stat) return Object.assign({ each: [], level: them.level }, winChance(me, them, runs * 3));
+    const boosted = Object.assign({}, them);
+    boosted[stat] = (them[stat] || 0) + bonus;
+    const result = winChance(me, boosted, runs);
+    return Object.assign(
+      { name: them.professionName || 'Unknown', stat: stat, bonus: bonus },
+      result,
+      { each: [{ name: them.professionName || 'Unknown', stat: stat, bonus: bonus, chance: result.chance }], level: them.level }
+    );
   }
 
-  // "If they're a Warrior (+2,786 Str) 62% · Rogue (+2,787 Dex) 81% · Defender (+2,787 Def) 74% (average shown)."
   function professionBreakdown(r) {
-    if (!r.each.length) return 'Below level 3,000, so no profession bonus is counted.';
+    if (!r.each.length) return 'No profession data, so no bonus is counted.';
     const short = { str: 'Str', dex: 'Dex', def: 'Def' };
-    return 'If they\u2019re a ' + r.each.map((x) => x.name + ' (+' + fmt(x.bonus) + ' ' + short[x.stat] + ') ' + Math.round(x.chance * 100) + '%').join(' \u00B7 ') +
-      ' (average shown' + (r.level ? ', bonus for level ' + fmt(r.level) : ', level unknown so the maximum bonus') + ').';
+    const e = r.each[0];
+    return `If they're a ${e.name}, +${fmt(e.bonus)} ${short[e.stat]}. Rank-based bonus for level ${fmt(r.level)}.`;
   }
 
   function winChance(me, them, runs) {
