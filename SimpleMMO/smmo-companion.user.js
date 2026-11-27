@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SMMO Companion
 // @namespace    https://reacien.dev/
-// @version      1.6.7
+// @version      1.7.0
 // @description  Walking stats, level progress, cooldowns, chat and page popups, character info and so much more for SimpleMMO.
 // @author       Reacien
 // @license      All Rights Reserved. You may install and use this script, but you may not copy, modify or redistribute it.
@@ -4809,15 +4809,10 @@ const $ = (id) => document.getElementById(id);
   }
 
   // We can't see someone's profession, so every player is assumed to have one of these three.
-  // How high it is depends on their level: "mid" is the bonus at profession level 1,500, "max" at the maximum.
-    // We can't see someone's profession, so every player is assumed to have one of these three.
   // The bonus is the same for every profession; only the stat it boosts changes.
   // "base" is the game's "original value" for that profession rank.
-  // NOTE: the level curve is fitted from only two levels (148 and 7,759). More readings are needed,
-  // especially above 10,000, before this can be trusted for high-level opponents.
-    // We read the other player's stats page in the background for opponents level 5,000+.
+  // We read the other player's stats page in the background for opponents level 5,000+.
   // It shows their profession name and rank, which gives us the exact base bonus.
-  // The level curve is still fitted from only two levels (148 and 7,759), so it needs more data.
   const PROFESSION_BONUSES = [
     { name: 'Warrior', stat: 'str' },
     { name: 'Rogue', stat: 'dex' },
@@ -4861,13 +4856,15 @@ const $ = (id) => document.getElementById(id);
     'The Unknown': 1080, 'Abyss': 1200, 'Void': 1310, 'Desolate': 1400, 'Null': 1510, 'Gloom': 1600, 'Undefined': 1720
   };
 
-  // The level curve: bonus = base x (0.021 + 0.394 x level^0.21).
-  // Fitted from level 148 (factor 1.147) and level 7,759 (factor 2.607), across all 18 ranks.
+  // The level curve: bonus = base x professionLevelFactor(level).
+  // Piecewise fit from levels 148, 7,759, 7,909, 8,341, 9,791 and 32,003.
   // Rank 500 looks bugged (same as rank 350), so it is excluded from the fit.
-  // More data is needed, especially above 10,000, to confirm the curve.
+  // More data is still needed between 1,000 and 10,000 and above 10,000.
   function professionLevelFactor(level) {
     if (!(level > 0)) return 1;
-    return 0.021 + 0.394 * Math.pow(level, 0.21);
+    if (level <= 1000) return 1 + 0.001 * level;
+    if (level <= 10000) return 2 + 0.00009 * (level - 1000);
+    return 2.81 + 0.000035 * (level - 10000);
   }
 
   // The bonus for a player, given their rank's base bonus and their player level.
